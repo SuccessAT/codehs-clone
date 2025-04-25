@@ -1,0 +1,15 @@
+e2b
+aiohttp
+python-socketio
+aiohttp-cors
+python-socketio[client]
+python-socketio[asyncio]
+asyncio
+async-timeout
+typing-extensions
+logging
+uuid
+pytest
+pytest-asyncio
+black
+flake8
