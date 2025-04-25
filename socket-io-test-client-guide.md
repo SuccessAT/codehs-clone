@@ -27,6 +27,7 @@ python test_client.py --server http://localhost:8000 --mode interactive
 ```
 
 Options:
+
 - `--server` or `-s`: Server URL (default: http://localhost:8000)
 - `--mode` or `-m`: Run mode (`test` or `interactive`) (default: interactive)
 - `--project-type` or `-t`: Project template type (default: base)
@@ -47,7 +48,7 @@ INFO - Connection established with SID: [your-session-id]
 You'll be prompted to create a new project or join an existing one:
 
 ```
-Create new project or join existing? (create/join): 
+Create new project or join existing? (create/join):
 ```
 
 Type `create` to create a new project or `join` to connect to an existing project.
@@ -79,32 +80,32 @@ This will display the list of available commands:
 
 ### Terminal Management
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `term [terminal_id]` | Create a new terminal | `term main_term` |
-| `close [terminal_id]` | Close a terminal | `close main_term` |
-| `run [terminal_id] [command]` | Run a command in terminal | `run main_term ls -la` |
-| `send [terminal_id] [text]` | Send text to terminal | `send main_term Hello\n` |
-| `stop [terminal_id]` | Send Ctrl+C to terminal | `stop main_term` |
+| Command                       | Description               | Example                  |
+| ----------------------------- | ------------------------- | ------------------------ |
+| `term [terminal_id]`          | Create a new terminal     | `term main_term`         |
+| `close [terminal_id]`         | Close a terminal          | `close main_term`        |
+| `run [terminal_id] [command]` | Run a command in terminal | `run main_term ls -la`   |
+| `send [terminal_id] [text]`   | Send text to terminal     | `send main_term Hello\n` |
+| `stop [terminal_id]`          | Send Ctrl+C to terminal   | `stop main_term`         |
 
 ### File Operations
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `file [path] [content]` | Create or update a file | `file app.py print("Hello")` |
-| `mkdir [path]` | Create a directory | `mkdir src` |
-| `ls [path]` | List contents of a directory | `ls .` |
-| `cat [path]` | Show file contents | `cat app.py` |
-| `rename [path] [new_name]` | Rename file or directory | `rename app.py main.py` |
-| `rm [path]` | Delete file or directory | `rm app.py` |
+| Command                    | Description                  | Example                      |
+| -------------------------- | ---------------------------- | ---------------------------- |
+| `file [path] [content]`    | Create or update a file      | `file app.py print("Hello")` |
+| `mkdir [path]`             | Create a directory           | `mkdir src`                  |
+| `ls [path]`                | List contents of a directory | `ls .`                       |
+| `cat [path]`               | Show file contents           | `cat app.py`                 |
+| `rename [path] [new_name]` | Rename file or directory     | `rename app.py main.py`      |
+| `rm [path]`                | Delete file or directory     | `rm app.py`                  |
 
 ### Project Management
 
-| Command | Description | Example |
-|---------|-------------|---------|
+| Command  | Description        | Example  |
+| -------- | ------------------ | -------- |
 | `status` | Get project status | `status` |
-| `help` | Show help | `help` |
-| `exit` | Exit program | `exit` |
+| `help`   | Show help          | `help`   |
+| `exit`   | Exit program       | `exit`   |
 
 ## Practical Examples
 
@@ -120,7 +121,7 @@ INFO - Command saveFile success: {"success": true}
 
 > run python_term python hello.py
 INFO - Terminal python_term output: Hello from the test client!
-INFO - Terminal python_term output: Enter your name: 
+INFO - Terminal python_term output: Enter your name:
 
 > send python_term Test User
 INFO - Terminal python_term output: Test User
@@ -168,6 +169,7 @@ INFO - Terminal terminal2 output: Hello from terminal 2
 ### Connection Issues
 
 If you're having trouble connecting:
+
 - Check that your server is running at the specified URL
 - Verify network connectivity
 - Check for any firewall blocking the connection
@@ -175,6 +177,7 @@ If you're having trouble connecting:
 ### Command Failures
 
 If commands fail:
+
 - Check the error message in the logs
 - Verify that terminal IDs are correct
 - Ensure paths are valid

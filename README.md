@@ -32,10 +32,10 @@ The system consists of the following components:
 
 ### Installation
 
-1. Clone the repository:
+1. Clone
 
    ```bash
-   git clone https://github.com/yourusername/cloud-terminal-project.git
+   git clone https://github.com/damieee/interactivity_environment.git
    cd cloud-terminal-project
    ```
 
@@ -46,6 +46,7 @@ The system consists of the following components:
    ```
 
 3. Set up environment variables:
+
    ```bash
    export E2B_API_KEY=your_api_key_here
    ```
