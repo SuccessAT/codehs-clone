@@ -3,6 +3,7 @@ import logging
 import sys
 import os
 import json
+import traceback
 from typing import Dict, Any, Optional, List, Callable
 import uuid
 import argparse
@@ -416,9 +417,7 @@ async def run_simple_test(server_url: str, project_type: str = "base"):
         await client.create_file(project_dir, "hello.py")
         await client.save_file(
             f"{project_dir}/hello.py",
-            "print('Hello from test client!')\n"
-            "name = input('Enter your name: ')\n"
-            "print(f'Hello, {name}!')"
+            "print('Hello from test client!')\nname = input('Enter your name: ')\nprint(f'Hello, {name}!')"
         )
         
         # Create a folder
@@ -494,6 +493,9 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
     """Run an interactive session for manual testing"""
     client = TestClient(server_url=server_url)
     
+    # Define project_dir at function level so it's accessible everywhere
+    project_dir = "/home/user/project"  # Default value
+    
     try:
         # Connect to server
         connected = await client.connect()
@@ -514,6 +516,11 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 if not project_data:
                     logger.error("Project initialization timeout")
                     continue
+                
+                # Update project_dir from project data
+                if project_data and 'details' in project_data:
+                    project_dir = project_data.get('details', {}).get('project_dir', '/home/user/project')
+                    logger.info(f"Project directory: {project_dir}")
                     
                 break
             elif choice == "join":
@@ -525,14 +532,15 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 if not project_data:
                     logger.error("Project join timeout")
                     continue
+
+                # Update project_dir from project data
+                if project_data and 'details' in project_data:
+                    project_dir = project_data.get('details', {}).get('project_dir', '/home/user/project')
+                    logger.info(f"Project directory: {project_dir}")
                     
                 break
             else:
                 print("Invalid choice. Please enter 'create' or 'join'.")
-                
-        # Create a terminal
-        terminal_id = "terminal_" + str(int(asyncio.get_event_loop().time()))
-        await client.create_terminal(terminal_id)
         
         # Interactive command loop
         print("\nEnter commands: ('help' for list of commands, 'exit' to quit)")
@@ -554,7 +562,7 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 Available commands:
                 - term <terminal_id>           : Create a new terminal
                 - close <terminal_id>          : Close a terminal
-                - run <terminal_id> <command> : Run a command in terminal
+                - run <terminal_id> <command>  : Run a command in terminal
                 - send <terminal_id> <text>    : Send text to terminal
                 - stop <terminal_id>           : Send Ctrl+C to terminal
                 - file <path> <content>        : Create or update a file
@@ -567,14 +575,25 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 - help                         : Show this help
                 - exit                         : Exit program
                 """)
-                
+            
             elif action == "term":
                 if len(cmd_parts) > 1:
                     term_id = cmd_parts[1]
                 else:
                     term_id = "terminal_" + str(int(asyncio.get_event_loop().time()))
-                    
+                print(f"Creating terminal: {term_id}")
                 await client.create_terminal(term_id)
+                
+                # Wait for terminal creation to complete
+                terminal_result = await client.wait_for_event(
+                    'command_result',
+                    condition=lambda data: data.get('command') == 'createTerminal'
+                )
+                
+                if terminal_result and terminal_result.get('result', {}).get('success'):
+                    print(f"Terminal {term_id} created successfully")
+                else:
+                    print(f"Warning: Terminal {term_id} may not be fully initialized")
                 
             elif action == "close":
                 if len(cmd_parts) < 2:
@@ -590,7 +609,46 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                     
                 term_id = cmd_parts[1]
                 command = " ".join(cmd_parts[2:])
-                await client.run_command(command, terminal_id=term_id)
+                
+                # Handle execution of files with proper path resolution
+                if "python" in command and not command.startswith("python /"):
+                    file_parts = command.split()
+                    if len(file_parts) > 1:
+                        file_part = file_parts[1]
+                        if not file_part.startswith('/'):
+                            # It's a relative path, resolve it against project_dir
+                            full_path = f"{project_dir}/{file_part}".replace('//', '/')
+                            command = f"python {full_path}"
+                
+                print(f"Running: {command}")
+                
+                # Run command with retry logic
+                max_retries = 3
+                retry_count = 0
+                success = False
+                
+                while retry_count < max_retries and not success:
+                    try:
+                        # Add a small delay before command execution
+                        await asyncio.sleep(0.5)
+                        
+                        # Run the command
+                        result = await client.run_command(command, terminal_id=term_id)
+                        print(f"Command sent successfully")
+                        
+                        # Wait a bit for command to start executing
+                        await asyncio.sleep(1)
+                        success = True
+                        
+                    except Exception as e:
+                        retry_count += 1
+                        print(f"Attempt {retry_count}: Error running command: {str(e)}")
+                        if retry_count >= max_retries:
+                            print(f"Failed to run command after {max_retries} attempts")
+                        else:
+                            print(f"Retrying in 1 second...")
+                            await asyncio.sleep(1)
+
                 
             elif action == "send":
                 if len(cmd_parts) < 3:
@@ -600,6 +658,7 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 term_id = cmd_parts[1]
                 text = " ".join(cmd_parts[2:])
                 await client.send_terminal_data(term_id, text + "\r")
+                await asyncio.sleep(0.5)
                 
             elif action == "stop":
                 if len(cmd_parts) < 2:
@@ -607,100 +666,167 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                     continue
                     
                 await client.stop_command(cmd_parts[1])
-                
+                await asyncio.sleep(0.5)
+
             elif action == "file":
                 if len(cmd_parts) < 2:
                     print("Error: Missing file path")
                     continue
                     
                 file_path = cmd_parts[1]
-                content = " ".join(cmd_parts[2:]) if len(cmd_parts) > 2 else ""
+                content = cmd_parts[2:] if len(cmd_parts) > 2 else ""
                 
-                # Extract parent path and filename
-                path_parts = file_path.rsplit("/", 1)
-                if len(path_parts) == 1:
-                    parent_path = "."
-                    file_name = path_parts[0]
+                # Handle file path construction properly
+                if file_path.startswith('/'):
+                    # Absolute path
+                    parent_path, file_name = os.path.split(file_path)
+                    if not parent_path:  # Handle root case
+                        parent_path = '/'
+                elif '/' in file_path:
+                    # Relative path with directory
+                    parent_path, file_name = os.path.split(file_path)
+                    # If parent_path doesn't start with /, it's relative to project_dir
+                    if not parent_path.startswith('/'):
+                        parent_path = f"{project_dir}/{parent_path}"
                 else:
-                    parent_path, file_name = path_parts
-                    
-                # Create or get parent directory
-                await client.get_folder(parent_path)
+                    # Just filename in current/project directory
+                    parent_path = project_dir
+                    file_name = file_path
                 
-                # Create file if it doesn't exist
-                await client.create_file(parent_path, file_name)
-                
-                # Save content
-                if content:
-                    await client.save_file(file_path, content)
+                try:
+                    # Create file
+                    await client.create_file(parent_path, file_name)
+                    await asyncio.sleep(0.5)  # Small delay to ensure file creation
+                    print(f"Created file: {parent_path}/{file_name}")
                     
+                    # Save content (if provided)
+                    if content:
+                        full_path = f"{parent_path}/{file_name}".replace('//', '/')
+                        await client.save_file(full_path, content)
+                        await asyncio.sleep(0.5)
+                        print(f"Saved content to: {full_path}")
+                except Exception as e:
+                    print(f"Error creating file: {str(e)}")
+                
             elif action == "mkdir":
                 if len(cmd_parts) < 2:
                     print("Error: Missing directory path")
                     continue
                     
-                path = cmd_parts[1]
+                dir_path = cmd_parts[1]
                 
-                # Extract parent path and directory name
-                path_parts = path.rsplit("/", 1)
-                if len(path_parts) == 1:
-                    parent_path = "."
-                    dir_name = path_parts[0]
+                # Handle directory path construction properly
+                if dir_path.startswith('/'):
+                    # Absolute path
+                    parent_path, dir_name = os.path.split(dir_path)
+                    if not parent_path:  # Handle root case
+                        parent_path = '/'
+                elif '/' in dir_path:
+                    # Relative path with parent directory
+                    parent_path, dir_name = os.path.split(dir_path)
+                    # If parent_path doesn't start with /, it's relative to project_dir
+                    if not parent_path.startswith('/'):
+                        parent_path = f"{project_dir}/{parent_path}"
                 else:
-                    parent_path, dir_name = path_parts
+                    # Just directory name in current/project directory
+                    parent_path = project_dir
+                    dir_name = dir_path
                     
-                await client.create_folder(parent_path, dir_name)
+                try:
+                    await client.create_folder(parent_path, dir_name)
+                    await asyncio.sleep(0.5)  # Small delay to ensure folder creation
+                    print(f"Created directory: {parent_path}/{dir_name}")
+                except Exception as e:
+                    print(f"Error creating directory: {str(e)}")
                 
             elif action == "ls":
-                path = cmd_parts[1] if len(cmd_parts) > 1 else "."
+                path = cmd_parts[1] if len(cmd_parts) > 1 else project_dir
+                
+                # Handle relative paths
+                if not path.startswith('/'):
+                    path = f"{project_dir}/{path}".replace('//', '/')
+                    
                 await client.get_folder(path)
+                await asyncio.sleep(0.5)
                 
             elif action == "cat":
                 if len(cmd_parts) < 2:
                     print("Error: Missing file path")
                     continue
+                
+                path = cmd_parts[1]
+                
+                # Handle relative paths
+                if not path.startswith('/'):
+                    path = f"{project_dir}/{path}".replace('//', '/')
                     
-                await client.get_file(cmd_parts[1])
+                await client.get_file(path)
+                await asyncio.sleep(0.5)
                 
             elif action == "rename":
                 if len(cmd_parts) < 3:
                     print("Error: Missing path or new name")
                     continue
+                
+                old_path = cmd_parts[1]
+                new_name = cmd_parts[2]
+                
+                # Handle relative paths
+                if not old_path.startswith('/'):
+                    old_path = f"{project_dir}/{old_path}".replace('//', '/')
                     
-                await client.rename_file(cmd_parts[1], cmd_parts[2])
+                await client.rename_file(old_path, new_name)
+                await asyncio.sleep(0.5)
                 
             elif action == "rm":
                 if len(cmd_parts) < 2:
                     print("Error: Missing path")
                     continue
                     
-                # Check if it's a file or folder
                 path = cmd_parts[1]
-                file_data = await client.get_file(path)
                 
-                # Delete accordingly
-                if file_data:
-                    await client.delete_file(path)
-                else:
-                    await client.delete_folder(path)
+                # Handle relative paths
+                if not path.startswith('/'):
+                    path = f"{project_dir}/{path}".replace('//', '/')
+                
+                try:
+                    # Try to get file info first
+                    file_data = await client.get_file(path)
+                    await asyncio.sleep(0.5)  # Small delay to ensure file retrieval
+                    
+                    # Delete accordingly
+                    if file_data:
+                        await client.delete_file(path)
+                        await asyncio.sleep(0.5)
+                        # Check if it's a file or folder
+                        print(f"Deleted file: {path}")
+                    else:
+                        await client.delete_folder(path)
+                        await asyncio.sleep(0.5)
+                        # Check if it's a file or folder
+                        print(f"Deleted folder: {path}")
+                except Exception as e:
+                    print(f"Error deleting path {path}: {str(e)}")
                     
             elif action == "status":
                 await client.get_project_status()
+                await asyncio.sleep(0.5)
                 
             else:
                 print(f"Unknown command: {action}. Type 'help' for available commands.")
                 
             # Small delay to allow events to process
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
+
             
     except KeyboardInterrupt:
         print("\nInteractive session terminated.")
     except Exception as e:
         logger.error(f"Error in interactive session: {str(e)}")
+        traceback.print_exc()  # Add this to get more detailed error info
     finally:
         # Disconnect
         await client.disconnect()
-
 
 async def main():
     parser = argparse.ArgumentParser(description="Socket.IO Test Client for Project Server")
@@ -716,10 +842,12 @@ async def main():
     if args.mode == 'test':
         logger.info("Running automated test sequence...")
         success = await run_simple_test(args.server, args.project_type)
+        await asyncio.sleep(0.5)
         sys.exit(0 if success else 1)
     else:
         logger.info("Starting interactive session...")
         await run_interactive_session(args.server, args.project_type)
+
 
 
 if __name__ == "__main__":
