@@ -1,224 +1,117 @@
-# Socket.IO Client Testing Steps
+# Interactive Mode Quick‑Start Guide
 
-This guide provides step-by-step instructions for testing the Socket.IO client functionality using the interactive mode. Each step includes the command to run and an explanation of what's happening.
+This walkthrough shows any CSC developer how to stand up the Socket IO sandbox locally, create & run code inside the container, and avoid the common pitfalls we have just debugged.
 
-## Prerequisites
+---
 
-- Python environment with socketio package installed
-- Access to the server (default: http://localhost:8000)
-- The `test_socketio_client.py` file from the repository
+## 1. Prerequisites
 
-## Testing Steps
+| Tool                | Version | Notes                                                           |
+| ------------------- | ------- | --------------------------------------------------------------- |
+| Python              | ≥ 3.10  | The CLI scripts are tested with 3.13 but anything ≥ 3.10 works. |
+| pip                 | latest  | for installing packages below                                   |
+| Poetry**or**venv    | –       | use whichever you prefer to manage deps                         |
+| **python-socketio** | 5.x     | Installed automatically via `requirements.txt`                  |
+| **aioconsole**      | latest  | Enables non‑blocking keyboard input in the CLI                  |
 
-### 1. Start the client in interactive mode
+```bash
+# from repo root
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+## 2. Start the Web‑Socket server
+
+```bash
+python socketio_server.py
+```
+
+You should see a line like:
+
+```
+Server started at http://0.0.0.0:8000
+```
+
+Keep this terminal **open** ; it hosts the container.
+
+---
+
+## 3. Open a second terminal for the interactive client
 
 ```bash
 python test_socketio_client.py --mode interactive
 ```
 
-This will start the client in interactive mode, connecting to the server at http://localhost:8000 by default.
+When the prompt appears, type:
 
-### 2. Create a new project
+1. **`create`** – creates a fresh project (you can also type `join <id>` to reconnect).
+2. Watch for **“Project … is ready”** before proceeding.
 
-When prompted, type:
+---
 
-```
-create
-```
+## 4. Essential interactive commands
 
-This will create a new project with a random UUID and wait for it to be ready. The client will connect to the server and initialize a new project environment.
+| Command              | What it does                                                                              | Example                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `term <id>`          | Create a new terminal inside the container                                                | `term main_terminal`                                                            |
+| `mkdir <dir>`        | Make directory                                                                            | `mkdir test`                                                                    |
+| `file <path> <code>` | Create/overwrite a file. Newlines =`\n`. If `<code>`is omitted the file is created empty. | `file test/hello.py` `file test/hello.py "#!/usr/bin/env python3\nprint('hi')"` |
+| `save <path> <code>` | Overwrite an**existing**file only                                                         | `save test/hello.py "print('updated')"`                                         |
+| `run <term> <cmd>`   | Run shell command in given terminal                                                       | `run main_terminal python test/hello.py`                                        |
+| `send <term> <text>` | Send raw keystrokes (handy for script input)                                              | `send main_terminal MyName`                                                     |
+| `close <term>`       | Close the terminal                                                                        | `close main_terminal`                                                           |
+| `exit`               | Quit the CLI (project stays alive if other clients attached)                              | –                                                                               |
 
-### 3. Create a main terminal
+> **Tip — multiline code** Use `\n` inside the `file`/`save` command to embed newlines, or create the file empty and then use `save`.
 
-```
-term main_terminal
-```
+---
 
-This creates a new terminal with the ID "main_terminal". This terminal will be used for running commands and interacting with your project.
+## 5. Example end‑to‑end workflow
 
-### 4. Create a project directory
-
-```
-mkdir project_test
-```
-
-This creates a new directory called "project_test" in the project's root directory.
-
-### 5. Check that the directory was created
-
-```
-ls project_test
-```
-
-This lists the contents of the current directory, verifying that your new directory was created.
-
-### 6. Create a Python file in the directory
-
-```
-file project_test/hello.py print('Hello from the test client!')\nname = input('Enter your name: ')\print(f'Hello, {name}!')\nage = input('How old are you? ')\nprint(f'You are {age} years old.')
+```text
+> term main_terminal                  # 1 create terminal
+> mkdir test                          # 2 make dir
+> file test/hello.py "#!/usr/bin/env python3\nname = input('Name: ')\nprint(f'Hi {name}!')"   # 3 create + write file
+> run main_terminal python test/hello.py   # 4 run it
+  Name: _type here_                   # 5 interactive input prompt
+> close main_terminal                 # 6 tidy up terminal
 ```
 
-This creates a Python file called "hello.py" in the project_test directory with the following content:
+What you should see in the server log:
 
-- A greeting message
-- A prompt for the user's name
-- A response using the input name
-- A prompt for the user's age
-- A response using the input age
+- PTY created → _pid ###_
+- `python …` executed
+- User input transmitted
+- Script output
 
-### 7. Verify the Python file content
+---
 
-```
-cat project_test/hello.py
-```
+## 6. Troubleshooting cheatsheet
 
-This displays the content of the hello.py file, allowing you to verify that it was created correctly.
+| Symptom                                                    | Cause                                               | Fix                                                                                            |
+| ---------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **`bash: … Permission denied`**when running `./file.py`    | Execute bit not set                                 | Use `python file.py` **or** `chmod +x file.py`then rerun                                       |
+| **`process with pid … not found`/`0 is not a valid Code`** | Terminal sat idle > 30 s – PTY auto‑reaped          | Edit `working_terminal.py`and set `timeout=None` *or*adopt the keep‑alive snippet (see README) |
+| File saves in test mode but not interactive                | `file`command sent list not string                  | Already fixed on branch `fix/file-content-as-string`                                           |
+| Socket disconnects after ~30 s of silence                  | `input()`blocks the event‑loop so heart‑beat missed | Fixed by using `aioconsole.ainput()`in the CLI                                                 |
 
-### 8. Run the Python file
+---
 
-```
-run main_terminal python project_test/hello.py
-```
+## 7. Shutting everything down cleanly
 
-This runs the Python file in the main terminal. The script will print a greeting and then wait for user input.
+1. In the CLI type `exit` (or `Ctrl‑C`).
+2. Watch the server log – it will print _“Last client … closing project”_ once all sessions detach.
+3. Press `Ctrl‑C` in the server window to stop the cleanup task and exit.
 
-### 9. Enter your name when prompted
+That’s it – your local sandbox is now clean and the E2B container has been released.
 
-```
-send main_terminal John Doe
-```
+---
 
-This sends the text "John Doe" to the terminal as input for the first prompt.
+### Maintainer notes
 
-### 10. Enter your age when prompted
-
-```
-send main_terminal 30
-```
-
-This sends the text "30" to the terminal as input for the second prompt.
-
-### 11. Create another terminal for file operations
-
-```
-term file_terminal
-```
-
-This creates a second terminal called "file_terminal" for performing additional file operations.
-
-### 12. Navigate to the project directory in the new terminal
-
-```
-run file_terminal cd project_test
-```
-
-This changes the current directory to the project_test directory in the file_terminal.
-
-### 13. List contents of the project directory
-
-```
-run file_terminal ls -la
-```
-
-This lists all files in the project_test directory, including hidden files.
-
-### 14. Create a new file in the project directory
-
-```
-file project_test/README.md # Project Test\n\nThis is a test project for the Socket.IO client.
-```
-
-This creates a README.md file in the project_test directory with a title and description.
-
-### 15. Check the content of the new file
-
-```
-cat project_test/README.md
-```
-
-This displays the content of the README.md file.
-
-### 16. Rename the Python file
-
-```
-rename project_test/hello.py greeting.py
-```
-
-This renames the hello.py file to greeting.py.
-
-### 17. Verify the file was renamed
-
-```
-ls project_test
-```
-
-This lists the contents of the project_test directory to verify that the file was renamed.
-
-### 18. Run the renamed Python file
-
-```
-run main_terminal python project_test/greeting.py
-```
-
-This runs the renamed Python file in the main terminal.
-
-### 19. Enter your name when prompted
-
-```
-send main_terminal Guest User
-```
-
-This sends "Guest User" as input for the name prompt.
-
-### 20. Enter your age when prompted
-
-```
-send main_terminal 25
-```
-
-This sends "25" as input for the age prompt.
-
-### 21. Stop any running commands
-
-```
-stop main_terminal
-```
-
-This sends a Ctrl+C signal to the main terminal, stopping any running commands.
-
-### 22. Get project status
-
-```
-status
-```
-
-This retrieves and displays the current status of the project.
-
-### 23. Exit the testing session
-
-```
-exit
-```
-
-This exits the interactive session and disconnects from the server.
-
-## Troubleshooting
-
-- If a terminal becomes unresponsive, use the `stop` command to interrupt any running processes.
-- If you encounter connection issues, ensure the server is running at the specified URL.
-- If file operations fail, check that the parent directories exist before creating files.
-
-## Additional Commands
-
-For a full list of available commands, type:
-
-```
-help
-```
-
-This will display all commands that can be used in the interactive session, including:
-
-- Managing terminals
-- File operations
-- Running commands
-- Sending input to terminals
+- The default container template is **`base`** ; adjust in `socketio_server.py → create_project` if you need a custom Docker image.
+- Environment variables (API keys, etc.) live in `.env.local` – never commit secrets.
+- Keep the **PTY timeout** and **keep‑alive task** settings aligned. If you raise one, drop the other.
