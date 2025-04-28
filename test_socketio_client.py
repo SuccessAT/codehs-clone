@@ -684,47 +684,101 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 await client.stop_command(cmd_parts[1])
                 await asyncio.sleep(0.5)
 
+            # elif action == "file":
+            #     if len(cmd_parts) < 2:
+            #         print("Error: Missing file path")
+            #         continue
+                    
+            #     file_path = cmd_parts[1]
+            #     # content = cmd_parts[2:] if len(cmd_parts) > 2 else ""
+            #     # content = " ".join(cmd_parts[2:]) if len(cmd_parts) > 2 else ""
+            #     content = " ".join(cmd_parts[2:]).replace(r"\n", "\n")
+                
+            #     # Handle file path construction properly
+            #     if file_path.startswith('/'):
+            #         # Absolute path
+            #         parent_path, file_name = os.path.split(file_path)
+            #         if not parent_path:  # Handle root case
+            #             parent_path = '/'
+            #     elif '/' in file_path:
+            #         # Relative path with directory
+            #         parent_path, file_name = os.path.split(file_path)
+            #         # If parent_path doesn't start with /, it's relative to project_dir
+            #         if not parent_path.startswith('/'):
+            #             parent_path = f"{project_dir}/{parent_path}"
+            #     else:
+            #         # Just filename in current/project directory
+            #         parent_path = project_dir
+            #         file_name = file_path
+                
+            #     try:
+            #         # Create file
+            #         await client.create_file(parent_path, file_name)
+            #         await asyncio.sleep(0.5)  # Small delay to ensure file creation
+            #         print(f"Created file: {parent_path}/{file_name}")
+                    
+            #         # Save content (if provided)
+            #         if content:
+            #             full_path = f"{parent_path}/{file_name}".replace('//', '/')
+            #             await client.save_file(full_path, content)
+
+            #         # NEW: make it executable if it looks like a script
+            #         if file_name.endswith(('.sh', '.py')):
+            #             await client.run_command(f"chmod +x {full_path}", terminal_id="main_terminal")
+
+
+            #             await asyncio.sleep(0.5)
+            #             print(f"Saved content to: {full_path}")
+            #     except Exception as e:
+            #         print(f"Error creating file: {str(e)}")
+
             elif action == "file":
                 if len(cmd_parts) < 2:
                     print("Error: Missing file path")
                     continue
-                    
+
                 file_path = cmd_parts[1]
-                # content = cmd_parts[2:] if len(cmd_parts) > 2 else ""
-                # content = " ".join(cmd_parts[2:]) if len(cmd_parts) > 2 else ""
-                content = " ".join(cmd_parts[2:]).replace(r"\n", "\n")
-                
-                # Handle file path construction properly
+                content   = " ".join(cmd_parts[2:]).replace(r"\n", "\n")  # may be empty
+
+                # ── 1. resolve parent_path and file_name ────────────────────────────────
                 if file_path.startswith('/'):
-                    # Absolute path
                     parent_path, file_name = os.path.split(file_path)
-                    if not parent_path:  # Handle root case
+                    if not parent_path:
                         parent_path = '/'
                 elif '/' in file_path:
-                    # Relative path with directory
                     parent_path, file_name = os.path.split(file_path)
-                    # If parent_path doesn't start with /, it's relative to project_dir
                     if not parent_path.startswith('/'):
                         parent_path = f"{project_dir}/{parent_path}"
                 else:
-                    # Just filename in current/project directory
                     parent_path = project_dir
-                    file_name = file_path
-                
-                try:
-                    # Create file
-                    await client.create_file(parent_path, file_name)
-                    await asyncio.sleep(0.5)  # Small delay to ensure file creation
-                    print(f"Created file: {parent_path}/{file_name}")
-                    
-                    # Save content (if provided)
-                    if content:
-                        full_path = f"{parent_path}/{file_name}".replace('//', '/')
-                        await client.save_file(full_path, content)
-                        await asyncio.sleep(0.5)
-                        print(f"Saved content to: {full_path}")
-                except Exception as e:
-                    print(f"Error creating file: {str(e)}")
+                    file_name   = file_path
+
+                full_path = f"{parent_path}/{file_name}".replace('//', '/')
+
+                # ── 2. create the (empty) file first ───────────────────────────────────
+                await client.create_file(parent_path, file_name)
+                await asyncio.sleep(0.5)
+                print(f"Created file: {full_path}")
+
+                # ── 3. if the user supplied content, write it now ──────────────────────
+                if content:
+                    await client.save_file(full_path, content)
+                    await asyncio.sleep(0.5)
+                    print(f"Saved content to: {full_path}")
+
+                # ── 4. set execute bit if desired – works whether or not we saved content
+                if file_name.endswith(('.sh', '.py')):
+                    # pick an existing terminal; create one if none
+                    terminal_id = next(iter(client.active_terminals), None)
+                    if not terminal_id:
+                        await client.create_terminal("main_terminal")
+                        # wait for it
+                        await client.wait_for_event('command_result',
+                            condition=lambda d: d.get('command') == 'createTerminal')
+                        terminal_id = "main_terminal"
+
+                    await client.run_command(f"chmod +x {full_path}", terminal_id=terminal_id)
+
                 
             elif action == "mkdir":
                 if len(cmd_parts) < 2:
