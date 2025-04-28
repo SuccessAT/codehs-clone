@@ -37,7 +37,9 @@ class ProjectServer:
         # Setup Socket.IO
         self.sio = socketio.AsyncServer(
             async_mode='aiohttp',
-            cors_allowed_origins='*'
+            cors_allowed_origins='*',
+            ping_timeout=300,  # 300 seconds before the server considers the client disconnected if no ping response
+            ping_interval=25  # 25 seconds between sending pings to the client
         )
         self.app = web.Application()
         self.sio.attach(self.app)

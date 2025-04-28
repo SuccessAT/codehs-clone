@@ -80,7 +80,7 @@ class Terminal:
                 size=PtySize(rows=24, cols=80),
                 on_data=handle_output,
                 # Set a shorter timeout to help with cleanup
-                timeout=30
+                timeout=1800,
             )
             self.pty_pid = self.command_handle.pid
             

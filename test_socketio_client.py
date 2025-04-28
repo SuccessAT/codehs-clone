@@ -184,7 +184,7 @@ class TestClient:
     async def connect(self):
         """Connect to the server"""
         try:
-            await self.sio.connect(self.server_url, wait_timeout=10)
+            await self.sio.connect(self.server_url, wait_timeout=300)
             return True
         except Exception as e:
             logger.error(f"Connection error: {str(e)}")
@@ -355,7 +355,7 @@ class TestClient:
             }
         })
         
-    async def wait_for_event(self, event: str, timeout: float = 10.0, condition: Callable = None):
+    async def wait_for_event(self, event: str, timeout: float = 300.0, condition: Callable = None):
         """Wait for a specific event with optional condition check"""
         event_future = asyncio.Future()
         
@@ -456,7 +456,7 @@ async def run_simple_test(server_url: str, project_type: str = "base"):
         await asyncio.sleep(0.5)
         await client.run_command("ls -la", terminal_id="folder_terminal")
         await asyncio.sleep(0.5)
-        await client.run_command("cat README.md", terminal_id="folder_terminal")
+        await client.run_command("cat test_folder/README.md", terminal_id="folder_terminal")
         await asyncio.sleep(1)
         
         # Rename a file
@@ -507,6 +507,7 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
         while True:
             choice = input("Create new project or join existing? (create/join): ").strip().lower()
             
+            
             if choice == "create":
                 project_id = await client.create_project(project_type=project_type)
                 logger.info(f"Creating project: {project_id}")
@@ -542,11 +543,14 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
             else:
                 print("Invalid choice. Please enter 'create' or 'join'.")
         
+        
         # Interactive command loop
         print("\nEnter commands: ('help' for list of commands, 'exit' to quit)")
         
         while True:
-            cmd = input("> ")
+            loop = asyncio.get_running_loop()
+            cmd = await loop.run_in_executor(None, input, "> ")
+
             cmd_parts = cmd.split()
             
             if not cmd_parts:
@@ -565,7 +569,8 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 - run <terminal_id> <command>  : Run a command in terminal
                 - send <terminal_id> <text>    : Send text to terminal
                 - stop <terminal_id>           : Send Ctrl+C to terminal
-                - file <path> <content>        : Create or update a file
+                - file <path>                  : Create a file
+                - save <path> <content>        : Save content to a file
                 - mkdir <path>                 : Create a directory
                 - ls <path>                    : List contents of a directory
                 - cat <path>                   : Show file contents
@@ -659,6 +664,17 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                 text = " ".join(cmd_parts[2:])
                 await client.send_terminal_data(term_id, text + "\r")
                 await asyncio.sleep(0.5)
+
+            elif action == "save":
+                # usage: save <path> <content>
+                if len(cmd_parts) < 3:
+                    print("Error: save needs <path> and <content>")
+                    continue
+                path = cmd_parts[1]
+                content = " ".join(cmd_parts[2:]).replace(r"\n", "\n")
+                if not path.startswith('/'):
+                    path = f"{project_dir}/{path}".replace('//', '/')
+                await client.save_file(path, content)
                 
             elif action == "stop":
                 if len(cmd_parts) < 2:
@@ -674,7 +690,9 @@ async def run_interactive_session(server_url: str, project_type: str = "base"):
                     continue
                     
                 file_path = cmd_parts[1]
-                content = cmd_parts[2:] if len(cmd_parts) > 2 else ""
+                # content = cmd_parts[2:] if len(cmd_parts) > 2 else ""
+                # content = " ".join(cmd_parts[2:]) if len(cmd_parts) > 2 else ""
+                content = " ".join(cmd_parts[2:]).replace(r"\n", "\n")
                 
                 # Handle file path construction properly
                 if file_path.startswith('/'):
