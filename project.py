@@ -15,7 +15,7 @@ logger = logging.getLogger("project")
 
 # Constants
 CONTAINER_PAUSE = 300000  # 5 minutes in milliseconds
-CONTAINER_TIMEOUT = 600000  # 10 minutes in milliseconds
+CONTAINER_TIMEOUT = 3600000  # 10 minutes in milliseconds
 MAX_TERMINALS = 10  # Maximum number of terminals per project
 DEFAULT_PROJECT_DIR = "/home/user/project"
 
@@ -125,7 +125,7 @@ class Project:
             # Close the sandbox if it exists
             if self.sandbox:
                 try:
-                    await self.sandbox.close()
+                    await self.sandbox.kill()
                 except Exception as e:
                     logger.error(f"Error closing sandbox for project {self.project_id}: {str(e)}")
                 self.sandbox = None
