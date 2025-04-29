@@ -1,5 +1,6 @@
 from typing import Dict, Callable, Optional, Any
 import uuid
+import asyncio
 from working_terminal import Terminal
 from e2b import AsyncSandbox
 
@@ -9,6 +10,7 @@ class TerminalManager:
     def __init__(self):
         self.terminals: Dict[str, Terminal] = {}
         self.sandbox = None
+        self.keep_alive_tasks: Dict[str, asyncio.Task] = {}
         
     async def initialize_sandbox(self, template: str = "base", 
                                 api_key: str = "e2b_25759fe29f1d0ab6ecb00f615f0dec122c70b6fa"):
@@ -16,9 +18,26 @@ class TerminalManager:
         if not self.sandbox:
             self.sandbox = await AsyncSandbox.create(
                 template=template,
-                api_key=api_key
+                api_key=api_key,
+                timeout=1800
+
             )
         return self.sandbox
+    
+    async def _keep_alive(self, id: str, terminal: Terminal):
+        """Keep the terminal alive by sending a null byte periodically"""
+        try:
+            while id in self.terminals:
+                await asyncio.sleep(20)  # Send keep-alive every 20 seconds
+                try:
+                    await terminal.send_data('\0')  # harmless null byte
+                except Exception:
+                    break  # terminal already closed
+        except asyncio.CancelledError:
+            # Task was cancelled, clean up
+            pass
+        except Exception as e:
+            print(f"Keep-alive task error for terminal {id}: {e}")
         
     async def create_terminal(self, id: str = None, on_data: Optional[Callable[[str], Any]] = None, 
                             default_directory: str = "home/user/project", 
@@ -58,6 +77,9 @@ class TerminalManager:
         # Store the terminal in our dictionary
         self.terminals[id] = terminal
         
+        # Start keep-alive task for this terminal
+        self.keep_alive_tasks[id] = asyncio.create_task(self._keep_alive(id, terminal))
+        
         # Send the default commands
         for command in default_commands:
             await terminal.send_data(command + "\r")
@@ -77,11 +99,16 @@ class TerminalManager:
             raise ValueError(f"Terminal with ID {id} does not exist")
             
         await self.terminals[id].send_data(data)
-    
+
     async def close_terminal(self, id: str) -> None:
         """Close a specific terminal"""
         if id not in self.terminals:
             raise ValueError(f"Terminal with ID {id} does not exist")
+        
+        # Cancel the keep-alive task if it exists
+        if id in self.keep_alive_tasks:
+            self.keep_alive_tasks[id].cancel()
+            del self.keep_alive_tasks[id]
             
         await self.terminals[id].close()
         del self.terminals[id]
@@ -100,7 +127,7 @@ class TerminalManager:
             except Exception as e:
                 print(f"Error closing sandbox: {e}")
             self.sandbox = None
-    
+
     def get_terminal_output(self, id: str, clean: bool = True) -> list:
         """Get the accumulated output from a specific terminal"""
         if id not in self.terminals:
