@@ -13,3 +13,6 @@ pytest
 pytest-asyncio
 black
 flake8
+fastapi
+pydantic
+uvicorn
