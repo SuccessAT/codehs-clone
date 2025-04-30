@@ -182,7 +182,7 @@ async def get_session() -> UserSession:
 # ─────────────────────── models with examples ────────────────────
 class RunCommandIn(BaseModel):
     terminal_id: str = Field(..., alias="terminalId", example="term_a1b2c3")
-    command: str = Field("python /home/user/project/hello.py", example="ls -la")
+    command: str = Field("python /home/user/project/test/main.py", example="ls -la")
     cwd: str | None = Field(None, example="/home/user/project")
 
 
@@ -192,9 +192,9 @@ class TerminalInputIn(BaseModel):
 
 
 class SaveFileIn(BaseModel):
-    path: str = Field(..., example="/home/user/project/hello.py")
-    content: str = Field("print('Stage 1: Let\\'s get to know you.')\\nname = input('What is your name? ')\\nprint(f'Nice to meet you, {name}!')\\nage = input('How old are you? ')\\nprint(f'{age} is a great age.')\\nlocation = input('Where are you joining from? ')\\nprint(f'{location} sounds like a wonderful place.')\\n\\nprint('\\nStage 2: A few more fun questions...\\n')\\nfavorite_food = input('What\\'s your favorite food? ')\\nprint('Yum!')\\nhobby = input('What do you enjoy doing in your free time? ')\\nprint('Sounds fun!')\\naspiration = input('What\\'s one thing you dream of doing someday? ')\\nprint('That\\'s inspiring!')\\n\\nprint('\\n--- Here\\'s your story ---')\\nprint(f\"Meet {name}, a {age}-year-old from {location}. {name} loves eating {favorite_food}, especially after a long day spent enjoying {hobby}. One day, {name} hopes to {aspiration}. Let\\'s cheer them on!\")",
-    example="print('Stage 1: Let\\'s get to know you.')\\nname = input('What is your name? ')\\nprint(f'Nice to meet you, {name}!')\\nage = input('How old are you? ')\\nprint(f'{age} is a great age.')\\nlocation = input('Where are you joining from? ')\\nprint(f'{location} sounds like a wonderful place.')\\n\\nprint('\\nStage 2: A few more fun questions...\\n')\\nfavorite_food = input('What\\'s your favorite food? ')\\nprint('Yum!')\\nhobby = input('What do you enjoy doing in your free time? ')\\nprint('Sounds fun!')\\naspiration = input('What\\'s one thing you dream of doing someday? ')\\nprint('That\\'s inspiring!')\\n\\nprint('\\n--- Here\\'s your story ---')\\nprint(f\"Meet {name}, a {age}-year-old from {location}. {name} loves eating {favorite_food}, especially after a long day spent enjoying {hobby}. One day, {name} hopes to {aspiration}. Let\\'s cheer them on!\")"
+    path: str = Field(..., example="/home/user/project/test/main.py")
+    content: str = Field("print('Stage 1: Lets get to know you.')\nname = input('What is your name? ')\nprint(f'Nice to meet you, {name}!')\n",
+    example="print('Stage 1: Lets get to know you.')\nname = input('What is your name? ')\nprint(f'Nice to meet you, {name}!')\n"
 )
 
 
