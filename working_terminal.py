@@ -95,6 +95,7 @@ class Terminal:
                     pid=self.pty_pid,
                     data=data.encode("utf-8")
                 )
+                
             except Exception as e:
                 print(f"[SEND ERROR]: {e}")
 

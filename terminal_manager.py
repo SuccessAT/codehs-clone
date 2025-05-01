@@ -61,7 +61,7 @@ class TerminalManager:
                 f'cd "{default_directory}"',
                 'export PS1=\'user> \'',
                 f"sudo chown -R user \"{default_directory}\"\r",
-                'clear'
+                'sudo apt update && sudo apt install -y default-jdk && clear\r',
             ]
         
         # Create the shared sandbox if it doesn't exist
@@ -83,7 +83,7 @@ class TerminalManager:
         # Send the default commands
         for command in default_commands:
             await terminal.send_data(command + "\r")
-        
+
         return id
     
     async def resize_terminal(self, id: str, dimensions: Dict[str, int]) -> None:
