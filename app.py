@@ -655,18 +655,37 @@ async def handle_terminal_input(websocket: WebSocket, terminal_id: str, session:
                     terminal_info["awaiting_input"] = False
                     terminal_info["last_command"] = command
                 
-                # Run the command
-                await session.call(
-                    "runCommand",
-                    {"terminalId": terminal_id, "command": command, "cwd": cwd},
-                )
-                
-                # Acknowledge command receipt
-                await websocket.send_json({
-                    "type": "command_ack",
-                    "command": command,
-                    "status": "sent"
-                })
+                # Detect javac command and auto-run corresponding .class
+                if command.startswith("javac ") and command.endswith(".java"):  
+                    # first compile
+                    await session.call(
+                        "runCommand",
+                        {"terminalId": terminal_id, "command": command, "cwd": cwd}
+                    )
+                    await websocket.send_json({
+                        "type": "command_ack", "command": command, "status": "compiled"
+                    })
+                    # derive class name
+                    java_file = command.split()[1]
+                    class_name = java_file.rsplit('.', 1)[0]
+                    run_cmd = f"java {class_name}"
+                    # then run
+                    await session.call(
+                        "runCommand",
+                        {"terminalId": terminal_id, "command": run_cmd, "cwd": cwd}
+                    )
+                    await websocket.send_json({
+                        "type": "command_ack", "command": run_cmd, "status": "ran"
+                    })
+                else:
+                    # normal command
+                    await session.call(
+                        "runCommand",
+                        {"terminalId": terminal_id, "command": command, "cwd": cwd}
+                    )
+                    await websocket.send_json({
+                        "type": "command_ack", "command": command, "status": "sent"
+                    })
                 
         except asyncio.CancelledError:
             break
