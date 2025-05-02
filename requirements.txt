@@ -16,3 +16,4 @@ flake8
 fastapi
 pydantic
 uvicorn
+apscheduler
