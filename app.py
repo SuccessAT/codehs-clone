@@ -584,36 +584,71 @@ async def terminal_websocket(
             pass
 
 
+# compile once at module-top
+_NOISE_KEYWORDS = {
+    "Reading package lists",
+    "Building dependency tree",
+    "Unpacking",
+    "Setting up",
+    "Processing triggers",
+    "debconf:",
+    "update-alternatives:",
+    "Suggested packages:",
+    "The following additional packages",
+    "The following NEW packages",
+    "Need to get",
+    "After this operation",
+    "Fetched",
+    "Skipping Java certificates setup",
+}
+# regex to strip any “[##% …]” progress bars, pure “(Reading database …)”
+_NOISE_REGEX = [
+    re.compile(r'^\s*\[\d+%.*\]'),              # apt progress bars
+    re.compile(r'^\(Reading database.*\)'),     # dpkg database lines
+    re.compile(r'^\x1b\['),                     # raw ANSI escape sequences
+]
+
 async def forward_terminal_output(websocket: WebSocket, terminal_id: str, session: UserSession):
-    """Forward terminal output to WebSocket client"""
+    """Forward terminal output to WebSocket client, filtering out apt/dpkg noise."""
     queue = session.terminal_output_queues[terminal_id]
-    
+
     while True:
         try:
-            # Wait for output from the terminal
             output = await queue.get()
             queue.task_done()
-            
+
+            data = output.get("data", "")
+            # drop any empty lines
+            if not data.strip():
+                continue
+
+            # drop any line containing a noise keyword
+            if any(kw in data for kw in _NOISE_KEYWORDS):
+                continue
+
+            # drop any line matching a noise regex
+            if any(rx.match(data) for rx in _NOISE_REGEX):
+                continue
+
             terminal_info = session.active_terminals[terminal_id]
-            
-            # Update awaiting_input status if needed
+
+            # update awaiting_input status if it's an input prompt
             if output.get("is_input_prompt", False):
                 terminal_info["awaiting_input"] = True
                 session.terminal_waiting_input[terminal_id] = True
-            
-            # Send to client
+
+            # send only the cleaned, user-relevant data
             await websocket.send_json({
                 "type": "output",
-                "data": output.get("data", ""),
+                "data": data,
                 "awaiting_input": terminal_info.get("awaiting_input", False)
             })
-            
+
         except asyncio.CancelledError:
             break
         except Exception as e:
             await websocket.send_json({"type": "error", "message": f"Output error: {str(e)}"})
             break
-
 
 async def handle_terminal_input(websocket: WebSocket, terminal_id: str, session: UserSession):
     """Handle input from WebSocket client"""
