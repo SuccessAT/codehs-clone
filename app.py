@@ -95,41 +95,63 @@ class UserSession:
     async def _on_command_result(self, data):
         self._pending.resolve(data["command"], data["result"])
     
+    # ───────────────────────── socket‑io event handler ─────────────────────────
     async def _on_terminal_response(self, data):
-        """Handle terminal output and detect input prompts"""
-        terminal_id = data.get("id")
-        output_data = data.get("data", "")
-        
-        if not terminal_id or terminal_id not in self.active_terminals:
+        """
+        Handle raw output coming back from the remote terminal and update
+        `awaiting_input` when we believe the program is paused for user input.
+
+        The detector is intentionally language‑agnostic.  It looks for:
+        1. A trailing prompt pattern on the *last* non‑empty line.
+        2. A partially printed blocking‑input call (e.g. “input(” or
+            “Scanner.nextLine(” with no newline afterwards).
+        3. A visible cursor‐control sequence that typically precedes a prompt
+            (ANSI ‘Save Cursor’ / ‘Show Cursor’ sequences).
+        """
+        term_id   = data.get("id")
+        chunk     = data.get("data", "")
+        if not term_id or term_id not in self.active_terminals:
             return
-            
-        # Check if this output indicates the program is waiting for input
-        input_indicators = [
-            ": ", # Common input prompts like "Enter your name: "
-            "? ",  # For question prompts
-            ">>> ", # Python REPL prompt
-            "... ",  # Python continuation prompt
-            "input(" # Python input function (partial match)
-        ]
-        
-        # Update terminal state if we detect an input prompt
-        terminal_info = self.active_terminals[terminal_id]
-        
-        # Check if the output ends with a common input prompt pattern
-        is_input_prompt = any(output_data.rstrip().endswith(indicator) for indicator in input_indicators)
-        # Or if it contains input() without a newline after
-        contains_input_fn = "input(" in output_data and not output_data.endswith("\n")
-        
-        if is_input_prompt or contains_input_fn:
-            self.terminal_waiting_input[terminal_id] = True
-            terminal_info["awaiting_input"] = True
-        
-        # Add the output to the terminal's queue
-        if terminal_id in self.terminal_output_queues:
-            await self.terminal_output_queues[terminal_id].put({
-                "data": output_data,
-                "is_input_prompt": is_input_prompt or contains_input_fn
-            })
+
+        # ── 1. Split into lines and examine only the final non‑blank line ──────────
+        *_, last_line = (ln for ln in chunk.rstrip("\r\n").splitlines() if ln.strip()) \
+                        or [""]
+        last_line = last_line.rstrip()
+
+        PROMPT_ENDINGS = (
+            ":",
+            ": ",
+            ">",
+            "> ",
+            "$ ",
+            "# ",
+            ">>> ",
+            "... ",
+            "? ",
+        )
+        is_prompt_line = last_line.endswith(PROMPT_ENDINGS)
+
+        # ── 2. Look for an unterminated blocking‑input call in *any* language ─────
+        # common call‑sites without the closing ')' yet echoed:
+        waiting_for_call = bool(re.search(
+            r"(?:input\(|raw_input\(|Scanner\.nextLine\(|readLine\(|readln\()$",
+            last_line
+        ))
+
+        # ── 3. Detect cursor‑visibility or save‑cursor escape codes that usually
+        #       precede a prompt (e.g. \x1b7\x1b[?25h or \x1b[s)  ──────────────────
+        has_cursor_seq = "\x1b[?25h" in chunk or "\x1b7" in chunk or "\x1b[s" in chunk
+
+        awaiting = is_prompt_line or waiting_for_call or has_cursor_seq
+        self.terminal_waiting_input[term_id] = awaiting
+        self.active_terminals[term_id]["awaiting_input"] = awaiting
+
+        # enqueue the raw output for anyone streaming this terminal
+        if term_id in self.terminal_output_queues:
+            await self.terminal_output_queues[term_id].put(
+                {"data": chunk, "is_input_prompt": awaiting}
+            )
+
 
     # -------- public helpers ----------
     async def connect(self):
