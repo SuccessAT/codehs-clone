@@ -22,7 +22,7 @@ logger = logging.getLogger("socketio_server")
 # Configuration constants
 # ----------------------------------------------------
 SESSION_EXPIRY_SECONDS = 60 * 60          # 1 hour
-RESTART_INTERVAL_SECONDS = 15 * 60        # 15 minutes
+RESTART_INTERVAL_SECONDS = 60 * 60        # 1 hour
 PING_TIMEOUT_SECONDS = 300                # 5 minutes
 PING_INTERVAL_SECONDS = 25                # 25 seconds
 
