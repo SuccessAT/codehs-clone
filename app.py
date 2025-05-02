@@ -2,25 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 import json
 import logging
-import signal
 import sys
+import re
 import os
 import time
 from datetime import datetime, timedelta
-
-
-# Add APScheduler for the restart functionality
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
 import socketio
 from fastapi import Body, Depends, FastAPI, HTTPException, Path, WebSocket, WebSocketDisconnect, Query, status
 from fastapi.responses import JSONResponse
-
 from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
+
 
 # Setup logging
 logging.basicConfig(
@@ -35,42 +30,10 @@ logger = logging.getLogger("app")
 SOCKET_SERVER_URL = "http://localhost:8000"
 PING_TIMEOUT = 300  # must be ≥ server ping_timeout
 
-# --------- Server Restart Functions ---------
+# Configuration settings
+PROJECT_REFRESH_INTERVAL = int(os.environ.get("PROJECT_REFRESH_INTERVAL", 15)) # minutes
+PROJECT_REFRESH_ENABLED = os.environ.get("PROJECT_REFRESH_ENABLED", "true").lower() in ("true", "1", "yes")
 
-async def restart_server():
-    logger.info("Scheduled restart triggered")
-    # non-blocking sleep
-    await asyncio.sleep(1)
-    os.execv(sys.executable, [sys.executable] + sys.argv)
-
-def setup_scheduler():
-    """
-    Sets up the scheduler to restart the server every 30 minutes.
-    Returns the scheduler instance.
-    """
-    scheduler = AsyncIOScheduler()
-    
-    # Schedule the restart_server function to run every 30 minutes
-    scheduler.add_job(restart_server, 'interval', minutes=20)
-    
-    # # Log that the scheduler has started
-    # scheduler.add_job(lambda: logger.info("Scheduler started, first restart in 30 minutes"), 
-    #                  'date', 
-    #                  run_date=datetime.now() + timedelta(seconds=5))
-    
-    return scheduler
-
-def setup_signal_handlers(scheduler):
-    """
-    Sets up signal handlers to gracefully shutdown the scheduler.
-    """
-    def signal_handler(sig, frame):
-        logger.info(f"Received signal {sig}, shutting down scheduler")
-        scheduler.shutdown()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
 
 # ────────────────────────── helpers ──────────────────────────
 class _Pending:
@@ -235,6 +198,63 @@ async def get_session() -> UserSession:
     return get_session._session
 
 
+# Background task for project recreation
+async def recreate_project_periodically():
+    """Background task that recreates the project periodically"""
+    while True:
+        try:
+            # Sleep first to allow initial setup
+            await asyncio.sleep(PROJECT_REFRESH_INTERVAL * 60)  # Convert minutes to seconds
+            
+            if PROJECT_REFRESH_ENABLED:
+                logger.info(f"Auto-refreshing project (every {PROJECT_REFRESH_INTERVAL} minutes)")
+                
+                # Get the session singleton
+                session = await get_session()
+                
+                # Store old project ID to log
+                old_project_id = session.project_id
+                
+                # Reset project information
+                session.project_id = None
+                session._project_ready.clear()
+                
+                # Create new project
+                new_pid = uuid.uuid4().hex
+                await session.sio.emit("create_project", {"id": new_pid, "type": "base"})
+                
+                # Wait for project ready with timeout
+                try:
+                    await asyncio.wait_for(session._project_ready.wait(), 30)
+                    logger.info(f"Project refreshed: {old_project_id} → {session.project_id}")
+                except asyncio.TimeoutError:
+                    logger.error("Timeout waiting for new project to be ready")
+        
+        except Exception as e:
+            logger.error(f"Error in project refresh task: {str(e)}")
+            # Sleep for a bit before retrying in case of error
+            await asyncio.sleep(60)
+
+
+# Startup event handler using lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start background tasks
+    if PROJECT_REFRESH_ENABLED:
+        logger.info(f"Starting project refresh task (every {PROJECT_REFRESH_INTERVAL} minutes)")
+        task = asyncio.create_task(recreate_project_periodically())
+    
+    yield
+    
+    # Cleanup on shutdown
+    if PROJECT_REFRESH_ENABLED:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 # ─────────────────────── models with examples ────────────────────
 class RunCommandIn(BaseModel):
     terminal_id: str = Field(..., alias="terminalId", example="term_a1b2c3")
@@ -283,23 +303,12 @@ class TerminalStatusResponse(BaseModel):
 
 
 # ────────────────────────── FastAPI app ──────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Start the scheduler for auto-restarts
-    scheduler = setup_scheduler()
-    setup_signal_handlers(scheduler)
-    scheduler.start()
-    logger.info("Server restart scheduler started (30-minute interval)")
-    
-    yield
-    
-    # Cleanup on shutdown
-    scheduler.shutdown()
-    if hasattr(get_session, "_session"):
-        await get_session._session.sio.disconnect()
 
 
-app = FastAPI(title="Project-Server REST Gateway", lifespan=lifespan)
+app = FastAPI(
+    title="Project-Server REST Gateway",
+    lifespan=lifespan
+)
 
 
 # ---------- project ----------
@@ -778,161 +787,44 @@ async def delete_file(path: str, session: UserSession = Depends(get_session)):
 async def delete_folder(path: str, session: UserSession = Depends(get_session)):
     return await session.call("deleteFolder", {"path": path})
 
-# Track last project creation time
-LAST_PROJECT_CREATION_TIME = 0
-CURRENT_PROJECT_ID = None
-CURRENT_TERMINAL_ID = None
-PROJECT_MAX_AGE = 15 * 60  # 15 minutes in seconds
-
-class RunCodeRequest(BaseModel):
-    files: Dict[str, str] = Field(..., description="Dictionary of filename to code content")
-    cwd: Optional[str] = Field("/home/user/project", description="Working directory")
-
-@app.post("/run-code")
-async def run_code(
-    req: RunCodeRequest,
-    session: UserSession = Depends(get_session),
-):
-    """
-    Endpoint to save and run code in a managed terminal.
-    Ensures environment setup finishes, resets scrollback, drains leftover output,
-    filters out system logs (e.g., apt-get download/unpacking/progress), then executes user code.
-    """
-    global LAST_PROJECT_CREATION_TIME, CURRENT_PROJECT_ID, CURRENT_TERMINAL_ID
-
-    # Determine if a new project/session is needed
-    now_ts = datetime.now().timestamp()
-    new_session = (
-        not CURRENT_PROJECT_ID or
-        not CURRENT_TERMINAL_ID or
-        (now_ts - LAST_PROJECT_CREATION_TIME) > PROJECT_MAX_AGE
-    )
-
-    if new_session:
-        # (Re)initialize project
-        await session.ensure_project()
-        CURRENT_PROJECT_ID = session.project_id
-        LAST_PROJECT_CREATION_TIME = now_ts
-
-        # Create and register a new terminal
-        term = await session.call("createTerminal")
-        CURRENT_TERMINAL_ID = term.get("id")
-        await session.register_terminal(CURRENT_TERMINAL_ID)
-
-        # Allow background setup (apt installs, etc.) to complete
-        await asyncio.sleep(5)
-
-        # Hard reset terminal (clears scrollback)
-        await session.call(
-            "runCommand",
-            {"terminalId": CURRENT_TERMINAL_ID, "command": "clear; printf '\\033c'"}
-        )
-        # Drain all leftover output
-        await asyncio.sleep(0.2)
-        while True:
-            drained = await session.get_terminal_output(CURRENT_TERMINAL_ID, timeout=0.1)
-            if not drained:
-                break
-    else:
-        await session.ensure_project()
-
-    # Validate input
-    if not req.files:
-        raise HTTPException(status_code=400, detail="No files provided")
-
-    # Save the user's file
-    main_file = next(iter(req.files))
-    content = req.files[main_file]
-    cwd = req.cwd or "/home/user/project"
-    import posixpath
-    file_path = posixpath.join(cwd, main_file)
-    dir_path = posixpath.dirname(file_path)
-    if dir_path and dir_path != cwd:
-        try:
-            await session.call(
-                "createFolder",
-                {"parentPath": posixpath.dirname(dir_path), "name": posixpath.basename(dir_path)}
-            )
-        except HTTPException:
-            pass
-    await session.call("saveFile", {"path": file_path, "content": content})
-
-    # Determine run command
-    ext = posixpath.splitext(main_file)[1].lower()
-    if ext == ".java":
-        await session.call(
-            "runCommand",
-            {"terminalId": CURRENT_TERMINAL_ID, "command": f"javac {main_file}", "cwd": cwd}
-        )
-        await asyncio.sleep(2)
-        run_cmd = f"java {posixpath.splitext(main_file)[0]}"
-    elif ext == ".py":
-        run_cmd = f"python {main_file}"
-    else:
-        run_cmd = f"cat {main_file}"
-
-    # Reset and drain again for a clean execution
-    await session.call(
-        "runCommand",
-        {"terminalId": CURRENT_TERMINAL_ID, "command": "clear; printf '\\033c'"}
-    )
-    await asyncio.sleep(0.2)
-    while True:
-        drained = await session.get_terminal_output(CURRENT_TERMINAL_ID, timeout=0.1)
-        if not drained:
-            break
-
-    # Execute user code
-    await session.call(
-        "runCommand",
-        {"terminalId": CURRENT_TERMINAL_ID, "command": run_cmd, "cwd": cwd}
-    )
-    await asyncio.sleep(2)
-
-    # Capture raw output
-    logs = await session.get_terminal_output(CURRENT_TERMINAL_ID)
-    raw = "".join(item.get("data", "") for item in logs)
-
-    # Filter out system logs
-    import re
-    filtered = []
-    for line in raw.splitlines(keepends=True):
-        if re.match(r'^\s*\d+% \[', line):
-            continue  # progress bars like '15% [#####]'
-        if re.match(r'^Get:\d+', line):
-            continue  # apt download logs
-        if re.match(r'^Preparing to unpack', line):
-            continue  # apt unpack logs
-        if re.match(r'^Unpacking ', line):
-            continue  # apt unpack logs
-        if 'Selecting previously unselected package' in line:
-            continue
-        if "Progress:" in line:
-            continue
-        if line.strip().startswith("Get:"):
-            continue
-        if "Preparing to unpack" in line:
-            continue
-        if "Unpacking" in line:
-            continue
-
-        filtered.append(line)
-    output_text = "".join(filtered)
-
-    awaiting_input = session.active_terminals[CURRENT_TERMINAL_ID].get("awaiting_input", False)
-    return {
-        "project_id": CURRENT_PROJECT_ID,
-        "terminal_id": CURRENT_TERMINAL_ID,
-        "output": output_text,
-        "awaiting_input": awaiting_input,
-        "command": run_cmd,
-        "is_new_session": new_session
-    }
 
 # ---------- misc ----------
 @app.get("/project/status")
 async def status(session: UserSession = Depends(get_session)):
     return await session.call("getProjectStatus")
+
+
+@app.get("/project/refresh")
+async def refresh_project(
+    session: UserSession = Depends(get_session),
+    force: bool = Query(False, description="Force refresh even if disabled in configuration")
+):
+    """Manually trigger project refresh"""
+    if not (PROJECT_REFRESH_ENABLED or force):
+        return {"status": "disabled", "message": "Project refresh is disabled"}
+    
+    # Store old project ID to log and return
+    old_project_id = session.project_id
+    
+    # Reset project information
+    session.project_id = None
+    session._project_ready.clear()
+    
+    # Create new project
+    new_pid = uuid.uuid4().hex
+    await session.sio.emit("create_project", {"id": new_pid, "type": "base"})
+    
+    # Wait for project ready with timeout
+    try:
+        await asyncio.wait_for(session._project_ready.wait(), 30)
+        return {
+            "status": "success", 
+            "old_project_id": old_project_id,
+            "new_project_id": session.project_id
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=500, detail="Timeout waiting for new project to be ready")
+
 
 if __name__ == "__main__":
     import uvicorn
