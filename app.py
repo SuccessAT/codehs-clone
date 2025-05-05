@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app")
 
-SOCKET_SERVER_URL = "http://localhost:8000"
+SOCKET_SERVER_URL = "http://3.131.13.46:8000"
 PING_TIMEOUT = 300  # must be ≥ server ping_timeout
 
 # Configuration settings
@@ -831,7 +831,7 @@ async def refresh_project(
     # Reset project information
     session.project_id = None
     session._project_ready.clear()
-    
+
     # Create new project
     new_pid = uuid.uuid4().hex
     await session.sio.emit("create_project", {"id": new_pid, "type": "base"})
