@@ -45,7 +45,7 @@ class TerminalManager:
                 f'cd "{default_directory}"',
                 'export PS1=\'user> \'',
                 f"sudo chown -R user \"{default_directory}\"\r",
-                'sudo apt install -y default-jdk && clear\r',
+                'clear\r',
             ]
         
         # Create the shared sandbox if it doesn't exist
