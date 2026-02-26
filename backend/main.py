@@ -117,18 +117,11 @@ Server responses:
     redoc_url="/redoc",
 )
 
-# CORS middleware - configured for localhost:5173 (Vite dev server)
+# CORS middleware - allow all origins for Replit proxy compatibility
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative frontend port
-        "http://localhost:8080",  # Another common port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8080",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],

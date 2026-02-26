@@ -2,6 +2,7 @@
 Database configuration and session management.
 """
 from typing import AsyncGenerator
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -19,9 +20,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./codehs.db"
     
-    # For PostgreSQL in production, uncomment below:
-    # DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/codehs"
-    
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
@@ -37,6 +35,24 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+def _build_async_db_url(url: str):
+    """Convert a sync DB URL to an async one and strip unsupported query params."""
+    # Convert driver schemes
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        # Strip query params not supported by asyncpg (like sslmode)
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        # Remove sslmode; asyncpg handles SSL differently
+        params.pop("sslmode", None)
+        new_query = urlencode({k: v[0] for k, v in params.items()})
+        url = urlunparse(parsed._replace(query=new_query))
+    return url
+
+
+_db_url = _build_async_db_url(settings.DATABASE_URL)
+
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
@@ -45,9 +61,9 @@ class Base(DeclarativeBase):
 
 # Create async engine
 engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
-    poolclass=StaticPool if "sqlite" in settings.DATABASE_URL else None,
+    _db_url,
+    connect_args={"check_same_thread": False} if "sqlite" in _db_url else {},
+    poolclass=StaticPool if "sqlite" in _db_url else None,
     echo=False,
     future=True,
 )
