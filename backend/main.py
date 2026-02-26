@@ -1,0 +1,258 @@
+"""
+Main FastAPI application for the CodeHS-like educational platform.
+
+This is the entry point that:
+- Initializes the FastAPI app
+- Configures CORS middleware
+- Sets up lifespan events for E2B service
+- Includes all routers
+- Provides health check and root endpoints
+"""
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import AsyncGenerator
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from database import engine, Base
+from e2b_service import (
+    E2BConnectionError,
+    init_e2b_service,
+    shutdown_e2b_service,
+    get_e2b_service,
+)
+from routers import auth_router, lessons_router, execution_router
+from schemas import HealthCheckResponse
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
+# ==================== Application Events ====================
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan events."""
+    # Startup: Create database tables
+    logger.info("Creating database tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Startup: Initialize E2B service
+    logger.info("Initializing E2B service...")
+    try:
+        e2b_service = await init_e2b_service()
+        logger.info(f"E2B service connected: {e2b_service.is_connected}")
+    except E2BConnectionError as e:
+        logger.warning(f"E2B service connection failed: {e}. Running in degraded mode.")
+    except Exception as e:
+        logger.warning(f"E2B service initialization error: {e}. Running in degraded mode.")
+    
+    logger.info("Application startup complete")
+    
+    yield
+    
+    # Shutdown: Shutdown E2B service
+    logger.info("Shutting down E2B service...")
+    await shutdown_e2b_service()
+    
+    # Shutdown: Dispose engine
+    await engine.dispose()
+    
+    logger.info("Application shutdown complete")
+
+
+# ==================== FastAPI App ====================
+app = FastAPI(
+    title="CodeHS Clone API",
+    description="""
+Backend API for CodeHS-like educational coding platform with E2B sandbox integration.
+
+## Features
+
+- **Authentication**: JWT-based authentication with role-based access control
+- **Lessons & Exercises**: CRUD operations for educational content
+- **Code Execution**: Real-time code execution in isolated sandboxes
+- **Autograding**: Automatic grading with exact match and regex support
+- **WebSocket Streaming**: Real-time stdout/stderr streaming
+
+## User Roles
+
+- **student**: Can view lessons, submit code, track progress
+- **teacher**: Full access including creating/editing content
+
+## WebSocket Protocol
+
+Connect to `/ws/execute/{user_id}?token={jwt_token}` for real-time execution:
+
+```json
+// Run code
+{"type": "run", "exercise_id": 1, "code": "print('Hello')", "language": "python"}
+
+// Send input for interactive programs
+{"type": "input", "data": "user input"}
+
+// Cancel execution
+{"type": "cancel"}
+```
+
+Server responses:
+```json
+{"type": "stdout", "data": {"content": "Hello\\n"}}
+{"type": "stderr", "data": {"content": "error message"}}
+{"type": "complete", "data": {"exit_code": 0, "execution_time": 0.5}}
+{"type": "grading_result", "data": {"passed": true, "score": 100}}
+```
+    """,
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# CORS middleware - configured for localhost:5173 (Vite dev server)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:3000",  # Alternative frontend port
+        "http://localhost:8080",  # Another common port
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
+)
+
+
+# ==================== Exception Handlers ====================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Global exception handler for unhandled errors."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected error occurred",
+            "error": str(exc) if logging.DEBUG >= logging.root.level else None,
+        }
+    )
+
+
+# ==================== Include Routers ====================
+app.include_router(auth_router)
+app.include_router(lessons_router)
+app.include_router(execution_router)
+
+
+# ==================== Health Check ====================
+@app.get("/health", response_model=HealthCheckResponse, tags=["System"])
+async def health_check() -> HealthCheckResponse:
+    """
+    Health check endpoint.
+    
+    Returns the health status of the API and E2B service connection.
+    """
+    e2b = get_e2b_service()
+    
+    return HealthCheckResponse(
+        status="healthy",
+        timestamp=datetime.utcnow().isoformat(),
+        e2b_connected=e2b.is_connected,
+        active_sandboxes=len(e2b._sandboxes) if e2b else 0,
+    )
+
+
+@app.get("/health/ready", tags=["System"])
+async def readiness_check() -> dict:
+    """
+    Readiness check endpoint.
+    
+    Returns 200 only if all services are ready.
+    """
+    e2b = get_e2b_service()
+    
+    checks = {
+        "database": True,  # If we got here, database is working
+        "e2b_service": e2b.is_connected,
+    }
+    
+    all_ready = all(checks.values())
+    
+    if not all_ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "checks": checks,
+            }
+        )
+    
+    return {
+        "status": "ready",
+        "checks": checks,
+    }
+
+
+@app.get("/health/live", tags=["System"])
+async def liveness_check() -> dict:
+    """
+    Liveness check endpoint.
+    
+    Returns 200 if the application is running.
+    """
+    return {"status": "alive"}
+
+
+# ==================== Root ====================
+@app.get("/", tags=["System"])
+async def root() -> dict:
+    """Root endpoint with API information."""
+    return {
+        "message": "Welcome to CodeHS Clone API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "redoc": "/redoc",
+        "health": "/health",
+        "websocket": "/ws/execute/{user_id}?token={jwt_token}",
+    }
+
+
+# ==================== API Info ====================
+@app.get("/api/v1", tags=["System"])
+async def api_info() -> dict:
+    """API version information."""
+    return {
+        "version": "v1",
+        "endpoints": {
+            "auth": "/api/v1/auth",
+            "lessons": "/api/v1/lessons",
+            "exercises": "/api/v1/exercises",
+            "submissions": "/api/v1/submissions",
+            "sandbox": "/api/v1/sandbox",
+            "execute": "/api/v1/execute",
+            "websocket": "/ws/execute/{user_id}",
+        }
+    }
+
+
+# ==================== Development Server ====================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info",
+    )
