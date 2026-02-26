@@ -133,11 +133,21 @@ app.add_middleware(
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler for unhandled errors."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    
+    # Safely get request info
+    request_info = "unknown"
+    if request and hasattr(request, 'url'):
+        try:
+            request_info = str(request.url)
+        except Exception:
+            request_info = "unavailable"
+    
     return JSONResponse(
         status_code=500,
         content={
             "detail": "An unexpected error occurred",
             "error": str(exc) if logging.DEBUG >= logging.root.level else None,
+            "request": request_info,
         }
     )
 

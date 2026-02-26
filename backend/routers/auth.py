@@ -9,8 +9,9 @@ Handles:
 """
 import logging
 from datetime import timedelta
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,11 +53,13 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 )
 async def register(
     user: UserCreate,
+    request: Optional[Request],
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Register a new user."""
-    # Check rate limit
-    await check_rate_limit(None)
+    # Check rate limit using the incoming request
+    if request is not None:
+        await check_rate_limit(request)
     
     # Check if username exists
     result = await db.execute(select(User).where(User.username == user.username))
@@ -106,11 +109,12 @@ async def register(
 )
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """Login and get access token."""
     # Check rate limit (use username as key for login attempts)
-    await check_rate_limit(None)
+    await check_rate_limit(request)
     
     # Find user
     result = await db.execute(select(User).where(User.username == form_data.username))

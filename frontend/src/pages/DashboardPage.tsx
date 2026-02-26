@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { lessonsApi } from '@/api';
-import { useAuthStore, useLessonStore, useUIStore } from '@/store';
+import { useAuthStore, useLessonStore } from '@/store';
 import LessonCard from '@/components/LessonCard';
 import type { Lesson, LessonProgress } from '@/types';
 
@@ -59,12 +59,6 @@ export default function DashboardPage() {
                         {user?.role === 'teacher' ? 'Manage your classes and lessons' : 'Continue your coding journey'}
                     </p>
                 </div>
-                <button 
-                    onClick={() => useUIStore.getState().setDarkMode(!useUIStore.getState().darkMode)}
-                    className="p-2 rounded-full bg-secondary text-secondary-foreground"
-                >
-                    {useUIStore.getState().darkMode ? '☀️' : '🌙'}
-                </button>
             </div>
 
             {user?.role === 'teacher' ? (

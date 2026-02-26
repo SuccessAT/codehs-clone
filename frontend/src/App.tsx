@@ -5,6 +5,7 @@ import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import LessonPage from './pages/LessonPage'
 import ExercisePage from './pages/ExercisePage'
+import ThemeToggle from './components/ThemeToggle'
 import { useAuthStore, useUIStore } from './store'
 
 const ProtectedRoute = ({ children, requireTeacher = false }: { children: React.ReactNode, requireTeacher?: boolean }) => {
@@ -33,7 +34,9 @@ function App() {
     }, [darkMode])
 
     return (
-        <BrowserRouter>
+        <>
+            <ThemeToggle />
+            <BrowserRouter>
             <Routes>
                 {/* Public Routes */}
                 <Route path="/login" element={<LoginPage />} />
@@ -62,7 +65,8 @@ function App() {
                 {/* Catch-all redirect */}
                 <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
-        </BrowserRouter>
+            </BrowserRouter>
+        </>
     )
 }
 

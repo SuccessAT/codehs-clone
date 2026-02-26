@@ -116,7 +116,7 @@ rate_limiter = RateLimiter(
 
 
 async def check_rate_limit(
-    request: Request,
+    request: Optional[Request],
     user: Optional[User] = None,
 ) -> None:
     """
@@ -125,16 +125,23 @@ async def check_rate_limit(
     Uses IP address for unauthenticated requests,
     user ID for authenticated requests.
     """
+    # Skip rate limiting if request is None (shouldn't happen but be safe)
+    if request is None:
+        return
+        
     # Use user ID if authenticated, otherwise IP
     if user:
         key = f"user:{user.id}"
     else:
         # Get client IP (handle proxies)
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            ip = request.client.host if request.client else "unknown"
+        try:
+            forwarded = request.headers.get("X-Forwarded-For") if request.headers else None
+            if forwarded:
+                ip = forwarded.split(",")[0].strip()
+            else:
+                ip = request.client.host if request.client else "unknown"
+        except Exception:
+            ip = "unknown"
         key = f"ip:{ip}"
     
     allowed, error_message = rate_limiter.is_allowed(key)
