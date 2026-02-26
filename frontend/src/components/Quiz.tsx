@@ -86,7 +86,7 @@ export default function Quiz({
                                 checked={answers.get(question.id) === String(index)}
                                 onChange={() => handleAnswerChange(question.id, String(index))}
                                 disabled={isSubmitting}
-                                className="w-5 h-5 text-primary-500 focus:ring-primary-500"
+                                className="w-5 h-5 text-primary focus:ring-primary"
                             />
                             <span className="text-gray-700 dark:text-gray-200">{option}</span>
                         </label>
@@ -98,18 +98,18 @@ export default function Quiz({
                                 className={clsx(
                                     'flex items-center gap-3 p-4 rounded-lg cursor-pointer transition-all',
                                     answers.get(question.id) === 'True'
-                                        ? 'bg-primary-50 dark:bg-primary-900/30 border-2 border-primary-500'
+                                        ? 'bg-primary/10 border-2 border-primary'
                                         : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-2 border-transparent'
                                 )}
                             >
                                 <input
                                     type="radio"
-                                    name={question.id}
+                                    name={String(question.id)}
                                     value="True"
                                     checked={answers.get(question.id) === 'True'}
                                     onChange={() => handleAnswerChange(question.id, 'True')}
                                     disabled={isSubmitting}
-                                    className="w-5 h-5 text-primary-500 focus:ring-primary-500"
+                                    className="w-5 h-5 text-primary focus:ring-primary"
                                 />
                                 <span className="text-gray-700 dark:text-gray-200">True</span>
                             </label>
@@ -117,18 +117,18 @@ export default function Quiz({
                                 className={clsx(
                                     'flex items-center gap-3 p-4 rounded-lg cursor-pointer transition-all',
                                     answers.get(question.id) === 'False'
-                                        ? 'bg-primary-50 dark:bg-primary-900/30 border-2 border-primary-500'
+                                        ? 'bg-primary/10 border-2 border-primary'
                                         : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-2 border-transparent'
                                 )}
                             >
                                 <input
                                     type="radio"
-                                    name={question.id}
+                                    name={String(question.id)}
                                     value="False"
                                     checked={answers.get(question.id) === 'False'}
                                     onChange={() => handleAnswerChange(question.id, 'False')}
                                     disabled={isSubmitting}
-                                    className="w-5 h-5 text-primary-500 focus:ring-primary-500"
+                                    className="w-5 h-5 text-primary focus:ring-primary"
                                 />
                                 <span className="text-gray-700 dark:text-gray-200">False</span>
                             </label>

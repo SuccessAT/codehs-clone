@@ -57,17 +57,21 @@ export const lessonsApi = {
 };
 
 export const authApi = {
-    login: (username: string, password: string) =>
-        fetchApi<{ access_token: string; user: { id: number; username: string; email: string } }>('/api/v1/auth/login', {
+    login: (username: string, password: string) => {
+        const formData = new FormData();
+        formData.append('username', username);
+        formData.append('password', password);
+        return fetchApi<{ access_token: string }>('/api/v1/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ username, password }),
+            body: formData,
+        });
+    },
+
+    register: (username: string, email: string, password: string, role: string = 'student') =>
+        fetchApi<{ id: number; username: string; email: string }>('/api/v1/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ username, email, password, role }),
         }),
 
-    register: (username: string, email: string, password: string) =>
-        fetchApi<{ access_token: string; user: { id: number; username: string; email: string } }>('/api/v1/auth/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password }),
-        }),
-
-    getCurrentUser: () => fetchApi<{ id: number; username: string; email: string }>('/api/v1/users/me'),
+    getCurrentUser: () => fetchApi<{ id: number; username: string; email: string; role: 'student' | 'teacher' }>('/api/v1/auth/me'),
 };

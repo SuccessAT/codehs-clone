@@ -3,6 +3,7 @@ export interface User {
     id: number;
     username: string;
     email: string;
+    role: 'student' | 'teacher';
 }
 
 export interface AuthState {

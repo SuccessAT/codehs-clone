@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { lessonsApi } from '@/api';
-import { useAuthStore, useLessonStore } from '@/store';
+import { useAuthStore, useLessonStore, useUIStore } from '@/store';
 import LessonCard from '@/components/LessonCard';
-import type { Lesson, UserProgress, LessonProgress } from '@/types';
+import type { Lesson, LessonProgress } from '@/types';
 
 export default function DashboardPage() {
     const { user } = useAuthStore();
@@ -19,7 +19,10 @@ export default function DashboardPage() {
                     lessonsApi.getMyProgress(),
                 ]);
                 setLessons(lessonsData);
-                setUserProgress(progressData);
+                setUserProgress({
+                    ...progressData,
+                    lessons: [] // Default or mapped lessons progress
+                });
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to fetch data';
                 setError(message);
@@ -45,23 +48,43 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto px-4 py-8">
             {/* Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                    Welcome back, {user?.username}!
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400">
-                    Continue your coding journey
-                </p>
+            <div className="mb-8 flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                        Welcome back, {user?.username}!
+                    </h1>
+                    <p className="text-gray-600 dark:text-gray-400">
+                        {user?.role === 'teacher' ? 'Manage your classes and lessons' : 'Continue your coding journey'}
+                    </p>
+                </div>
+                <button 
+                    onClick={() => useUIStore.getState().setDarkMode(!useUIStore.getState().darkMode)}
+                    className="p-2 rounded-full bg-secondary text-secondary-foreground"
+                >
+                    {useUIStore.getState().darkMode ? '☀️' : '🌙'}
+                </button>
             </div>
 
+            {user?.role === 'teacher' ? (
+                <TeacherDashboard lessons={lessons} isLoading={localLoading} />
+            ) : (
+                <StudentDashboard userProgress={userProgress} lessons={lessons} isLoading={localLoading} getLessonProgress={getLessonProgress} getExerciseCount={getExerciseCount} />
+            )}
+        </div>
+    );
+}
+
+function StudentDashboard({ userProgress, lessons, isLoading, getLessonProgress, getExerciseCount }: any) {
+    return (
+        <>
             {/* Stats */}
             {userProgress && (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                     <div className="card p-4">
                         <p className="text-sm text-gray-500 dark:text-gray-400">Progress</p>
-                        <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                        <p className="text-2xl font-bold text-primary">
                             {userProgress.progress_percentage}%
                         </p>
                     </div>
@@ -89,21 +112,15 @@ export default function DashboardPage() {
             {/* Lessons */}
             <div>
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                    Lessons
+                    Your Lessons
                 </h2>
 
-                {localLoading ? (
+                {isLoading ? (
                     <div className="flex items-center justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-                    </div>
-                ) : lessons.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-gray-500 dark:text-gray-400">
-                            No lessons available yet.
-                        </p>
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {lessons.map((lesson: Lesson) => (
                             <LessonCard
                                 key={lesson.id}
@@ -115,6 +132,40 @@ export default function DashboardPage() {
                     </div>
                 )}
             </div>
+        </>
+    )
+}
+
+function TeacherDashboard({ lessons, isLoading }: any) {
+    return (
+        <div>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                    Lesson Management
+                </h2>
+                <button className="btn-primary">Create New Lesson</button>
+            </div>
+
+            {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 gap-4">
+                    {lessons.map((lesson: Lesson) => (
+                        <div key={lesson.id} className="card p-6 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-lg font-bold">{lesson.title}</h3>
+                                <p className="text-sm text-muted-foreground">{lesson.description}</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button className="text-sm font-medium text-primary hover:underline">Edit</button>
+                                <button className="text-sm font-medium text-destructive hover:underline">Delete</button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
-    );
+    )
 }

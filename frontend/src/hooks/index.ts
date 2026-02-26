@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { lessonsApi, authApi } from '@/api';
+import { lessonsApi } from '@/api';
+import { useAuthStore } from '@/store';
 import type { QuizAnswer, Submission } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -102,7 +103,7 @@ export function useSubmission(exerciseId: number) {
 }
 
 export function useAuth() {
-    const [user, setUser] = useState<{ id: number; username: string; email: string } | null>(null);
+    const { login: setLogin, logout: setLogout } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -110,20 +111,31 @@ export function useAuth() {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
+                body: formData,
             });
 
             if (!response.ok) {
-                throw new Error('Login failed');
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.detail || 'Login failed');
             }
 
-            const data = await response.json();
-            localStorage.setItem('token', data.access_token);
-            setUser(data.user);
-            return data;
+            const { access_token } = await response.json();
+            localStorage.setItem('token', access_token);
+            
+            // Get user info
+            const userResponse = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+                headers: { 'Authorization': `Bearer ${access_token}` },
+            });
+            const userData = await userResponse.json();
+            
+            setLogin(userData, access_token);
+            return { access_token, user: userData };
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Login failed';
             setError(message);
@@ -131,26 +143,27 @@ export function useAuth() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [setLogin]);
 
-    const register = useCallback(async (username: string, email: string, password: string) => {
+    const register = useCallback(async (username: string, email: string, password: string, role: string = 'student') => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+            const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password }),
+                body: JSON.stringify({ username, email, password, role }),
             });
 
             if (!response.ok) {
-                throw new Error('Registration failed');
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.detail || 'Registration failed');
             }
 
-            const data = await response.json();
-            localStorage.setItem('token', data.access_token);
-            setUser(data.user);
-            return data;
+            const userData = await response.json();
+            
+            // Auto login after registration
+            return await login(username, password);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Registration failed';
             setError(message);
@@ -158,12 +171,12 @@ export function useAuth() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [login]);
 
     const logout = useCallback(() => {
         localStorage.removeItem('token');
-        setUser(null);
-    }, []);
+        setLogout();
+    }, [setLogout]);
 
-    return { user, isLoading, error, login, logout, register };
+    return { isLoading, error, login, logout, register };
 }

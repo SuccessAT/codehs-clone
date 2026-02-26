@@ -86,7 +86,6 @@ export function useExecution(exerciseId: number, language?: string) {
                         setError((message.data as { message: string }).message);
                         break;
                     case 'complete':
-                        const result = message.data as ExecutionResult;
                         setIsExecuting(false);
                         // Keep the output for reference
                         break;
