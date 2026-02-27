@@ -97,6 +97,71 @@ class LessonWithExercises(LessonResponse):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CourseBase(BaseModel):
+    """Base course schema."""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
+    level: str = Field(default="beginner", pattern="^(beginner|intermediate|advanced)$")
+    theme: str = Field(default="ocean", max_length=50)
+    is_published: bool = False
+
+
+class CourseCreate(CourseBase):
+    """Schema for creating a course."""
+    pass
+
+
+class CourseUpdate(BaseModel):
+    """Schema for updating a course."""
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
+    level: Optional[str] = Field(None, pattern="^(beginner|intermediate|advanced)$")
+    theme: Optional[str] = Field(None, max_length=50)
+    is_published: Optional[bool] = None
+
+
+class CourseResponse(CourseBase):
+    """Schema for course response."""
+    id: int
+    owner_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CourseModuleCreate(BaseModel):
+    """Create module (lesson) inside a course."""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    video_url: Optional[str] = None
+    order: int = 0
+    module_type: str = Field(default="concept", pattern="^(concept|project|assessment|lab|review)$")
+
+
+class CourseModuleResponse(BaseModel):
+    """Response for a course module."""
+    id: int
+    course_id: int
+    lesson_id: int
+    module_type: str
+    module_order: int
+    lesson: LessonResponse
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CourseWithModules(CourseResponse):
+    """Course response including nested modules."""
+    modules: list[CourseModuleResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ==================== Exercise Schemas ====================
 
 class TestCase(BaseModel):

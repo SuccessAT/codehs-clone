@@ -1,4 +1,4 @@
-import type { Lesson, LessonWithExercises, ExerciseDetail, UserProgress, Submission, QuizAnswer } from '@/types';
+import type { Lesson, LessonWithExercises, ExerciseDetail, Submission, QuizAnswer, Course, CourseWithModules, CourseModule, LessonProgress } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -44,7 +44,7 @@ export const lessonsApi = {
 
     getExercise: (id: number) => fetchApi<ExerciseDetail>(`/api/v1/exercises/${id}`),
 
-    getMyProgress: () => fetchApi<{ total_exercises: number; completed_exercises: number; progress_percentage: number; total_submissions: number; total_points: number }>('/api/v1/users/me/progress'),
+    getMyProgress: () => fetchApi<{ total_exercises: number; completed_exercises: number; progress_percentage: number; total_submissions: number; total_points: number; lessons: LessonProgress[] }>('/api/v1/users/me/progress'),
 
     listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions/'),
 
@@ -59,6 +59,34 @@ export const lessonsApi = {
         fetchApi<{ result: { passed: boolean; score: number; feedback: string } }>(`/api/v1/exercises/${exerciseId}/submit-quiz/`, {
             method: 'POST',
             body: JSON.stringify({ answers: answers.map(a => ({ question_id: a.question_id, answer: Number(a.answer) })) }),
+        }),
+};
+
+export const courseApi = {
+    list: () => fetchApi<Course[]>('/api/v1/courses'),
+    get: (id: number) => fetchApi<CourseWithModules>(`/api/v1/courses/${id}`),
+    create: (course: {
+        title: string;
+        description?: string;
+        category?: string;
+        level: 'beginner' | 'intermediate' | 'advanced';
+        theme: string;
+        is_published?: boolean;
+    }) =>
+        fetchApi<Course>('/api/v1/courses', {
+            method: 'POST',
+            body: JSON.stringify(course),
+        }),
+    createModule: (courseId: number, module: {
+        title: string;
+        description?: string;
+        video_url?: string;
+        order?: number;
+        module_type: 'concept' | 'project' | 'assessment' | 'lab' | 'review';
+    }) =>
+        fetchApi<CourseModule>(`/api/v1/courses/${courseId}/modules`, {
+            method: 'POST',
+            body: JSON.stringify(module),
         }),
 };
 

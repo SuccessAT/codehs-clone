@@ -28,6 +28,34 @@ export interface LessonWithExercises extends Lesson {
     exercises: Exercise[];
 }
 
+export interface Course {
+    id: number;
+    title: string;
+    description?: string;
+    category?: string;
+    level: 'beginner' | 'intermediate' | 'advanced';
+    theme: string;
+    is_published: boolean;
+    owner_id: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CourseModule {
+    id: number;
+    course_id: number;
+    lesson_id: number;
+    module_type: 'concept' | 'project' | 'assessment' | 'lab' | 'review';
+    module_order: number;
+    lesson: Lesson;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CourseWithModules extends Course {
+    modules: CourseModule[];
+}
+
 export interface LessonProgress {
     lesson_id: number;
     lesson_title?: string;

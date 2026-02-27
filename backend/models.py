@@ -13,6 +13,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
@@ -59,6 +60,9 @@ class User(Base):
     sandbox_sessions: Mapped[list["SandboxSession"]] = relationship(
         "SandboxSession", back_populates="user", cascade="all, delete-orphan"
     )
+    courses: Mapped[list["Course"]] = relationship(
+        "Course", back_populates="owner", cascade="all, delete-orphan"
+    )
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', role={self.role})>"
@@ -79,6 +83,9 @@ class Lesson(Base):
     # Relationships
     exercises: Mapped[list["Exercise"]] = relationship(
         "Exercise", back_populates="lesson", cascade="all, delete-orphan", order_by="Exercise.order"
+    )
+    course_modules: Mapped[list["CourseModule"]] = relationship(
+        "CourseModule", back_populates="lesson", cascade="all, delete-orphan"
     )
     
     def __repr__(self) -> str:
@@ -169,3 +176,46 @@ class SandboxSession(Base):
     
     def __repr__(self) -> str:
         return f"<SandboxSession(id={self.id}, sandbox_id='{self.sandbox_id}', status={self.status})>"
+
+
+class Course(Base):
+    """Course model that groups modules (lessons)."""
+    __tablename__ = "courses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    level: Mapped[str] = mapped_column(String(50), nullable=False, default="beginner")
+    theme: Mapped[str] = mapped_column(String(50), nullable=False, default="ocean")
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    owner: Mapped["User"] = relationship("User", back_populates="courses")
+    modules: Mapped[list["CourseModule"]] = relationship(
+        "CourseModule",
+        back_populates="course",
+        cascade="all, delete-orphan",
+        order_by="CourseModule.module_order",
+    )
+
+
+class CourseModule(Base):
+    """Join model to attach lessons to courses with module metadata."""
+    __tablename__ = "course_modules"
+    __table_args__ = (
+        UniqueConstraint("course_id", "lesson_id", name="uq_course_module_course_lesson"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True)
+    lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True)
+    module_type: Mapped[str] = mapped_column(String(50), nullable=False, default="concept")
+    module_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    course: Mapped["Course"] = relationship("Course", back_populates="modules")
+    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="course_modules")
