@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
+import CourseManagementPage from './pages/CourseManagementPage'
+import StudentCourseView from './pages/StudentCourseView'
 import LessonPage from './pages/LessonPage'
 import ExercisePage from './pages/ExercisePage'
 import ThemeToggle from './components/ThemeToggle'
@@ -48,6 +50,28 @@ function App() {
                         <DashboardPage />
                     </ProtectedRoute>
                 } />
+                
+                {/* Course Management (Teachers only) */}
+                <Route path="/manage/course/:courseId" element={
+                    <ProtectedRoute requireTeacher>
+                        <CourseManagementPage />
+                    </ProtectedRoute>
+                } />
+                
+                {/* Student Course View */}
+                <Route path="/course/:courseId" element={
+                    <ProtectedRoute>
+                        <StudentCourseView />
+                    </ProtectedRoute>
+                } />
+
+                {/* Module View (Students) */}
+                <Route path="/course/:courseId/module/:moduleId" element={
+                    <ProtectedRoute>
+                        <LessonPage />
+                    </ProtectedRoute>
+                } />
+                
                 <Route path="/lesson/:lessonId" element={
                     <ProtectedRoute>
                         <LessonPage />

@@ -73,14 +73,21 @@ class Lesson(Base):
     __tablename__ = "lessons"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    module_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("modules.id", ondelete="CASCADE"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    lesson_type: Mapped[str] = mapped_column(String(50), nullable=False, default="text")  # text, video, picture, codelab, assignment
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Markdown content for text lessons
+    media_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Video or picture URL
+    starter_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Starter code for codelab
+    language: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Programming language for codelab
     video_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relationships
+    module: Mapped[Optional["Module"]] = relationship("Module", back_populates="lessons")
     exercises: Mapped[list["Exercise"]] = relationship(
         "Exercise", back_populates="lesson", cascade="all, delete-orphan", order_by="Exercise.order"
     )
@@ -179,7 +186,7 @@ class SandboxSession(Base):
 
 
 class Course(Base):
-    """Course model that groups modules (lessons)."""
+    """Course model that groups modules."""
     __tablename__ = "courses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -194,16 +201,37 @@ class Course(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     owner: Mapped["User"] = relationship("User", back_populates="courses")
-    modules: Mapped[list["CourseModule"]] = relationship(
-        "CourseModule",
+    modules: Mapped[list["Module"]] = relationship(
+        "Module",
         back_populates="course",
         cascade="all, delete-orphan",
-        order_by="CourseModule.module_order",
+        order_by="Module.order",
+    )
+
+
+class Module(Base):
+    """Module model - a section within a course containing multiple lessons."""
+    __tablename__ = "modules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    course: Mapped["Course"] = relationship("Course", back_populates="modules")
+    lessons: Mapped[list["Lesson"]] = relationship(
+        "Lesson",
+        back_populates="module",
+        cascade="all, delete-orphan",
+        order_by="Lesson.order",
     )
 
 
 class CourseModule(Base):
-    """Join model to attach lessons to courses with module metadata."""
+    """Legacy join model to attach lessons to courses with module metadata. DEPRECATED - use Module instead."""
     __tablename__ = "course_modules"
     __table_args__ = (
         UniqueConstraint("course_id", "lesson_id", name="uq_course_module_course_lesson"),

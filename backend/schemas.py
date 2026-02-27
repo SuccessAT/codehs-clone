@@ -64,8 +64,14 @@ class LessonBase(BaseModel):
     """Base lesson schema."""
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+    lesson_type: str = Field(default="text", pattern="^(text|video|picture|codelab|assignment)$")
+    content: Optional[str] = None  # Markdown for text lessons
+    media_url: Optional[str] = None  # Video or picture URL
+    starter_code: Optional[str] = None  # Starter code for codelab
+    language: Optional[str] = None  # Programming language
     video_url: Optional[str] = None
     order: int = 0
+    module_id: Optional[int] = None  # Foreign key to Module
 
 
 class LessonCreate(LessonBase):
@@ -158,6 +164,51 @@ class CourseModuleResponse(BaseModel):
 class CourseWithModules(CourseResponse):
     """Course response including nested modules."""
     modules: list[CourseModuleResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ==================== Module Schemas (New) ====================
+
+class ModuleBase(BaseModel):
+    """Base module schema."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    order: int = 0
+
+
+class ModuleCreate(ModuleBase):
+    """Schema for creating a module."""
+    pass
+
+
+class ModuleUpdate(BaseModel):
+    """Schema for updating a module."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    order: Optional[int] = None
+
+
+class ModuleResponse(ModuleBase):
+    """Schema for module response."""
+    id: int
+    course_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ModuleWithLessons(ModuleResponse):
+    """Module response including nested lessons."""
+    lessons: list[LessonResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CourseWithNewModules(CourseResponse):
+    """Course response including new nested modules."""
+    modules: list[ModuleWithLessons] = []
 
     model_config = ConfigDict(from_attributes=True)
 

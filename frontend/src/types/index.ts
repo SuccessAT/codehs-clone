@@ -14,46 +14,43 @@ export interface AuthState {
     logout: () => void;
 }
 
-// Lesson types
-export interface Lesson {
+// Course Hierarchy (matching frontend2/ structure)
+export interface Course {
     id: number;
     title: string;
     description: string;
+    teacher_id: number;
+    created_at: string;
+    modules?: Module[];
+}
+
+export interface Module {
+    id: number;
+    course_id: number;
+    name: string;
+    description: string;
     order: number;
-    video_url?: string;
+    lessons?: Lesson[];
+}
+
+export type LessonType = 'codelab' | 'text' | 'video' | 'picture' | 'assignment';
+
+export interface Lesson {
+    id: number;
+    module_id: number;
+    title: string;
+    description: string;
+    lesson_type: LessonType;
+    content?: string; // Markdown or JSON
+    media_url?: string; // Video or picture
+    starter_code?: string; // For codelab
+    language?: string; // For codelab
+    order: number;
     created_at: string;
 }
 
 export interface LessonWithExercises extends Lesson {
     exercises: Exercise[];
-}
-
-export interface Course {
-    id: number;
-    title: string;
-    description?: string;
-    category?: string;
-    level: 'beginner' | 'intermediate' | 'advanced';
-    theme: string;
-    is_published: boolean;
-    owner_id: number;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface CourseModule {
-    id: number;
-    course_id: number;
-    lesson_id: number;
-    module_type: 'concept' | 'project' | 'assessment' | 'lab' | 'review';
-    module_order: number;
-    lesson: Lesson;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface CourseWithModules extends Course {
-    modules: CourseModule[];
 }
 
 export interface LessonProgress {

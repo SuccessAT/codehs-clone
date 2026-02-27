@@ -15,10 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import User, Lesson, Exercise, Submission, UserRole, SubmissionStatus, Course, CourseModule
+from models import User, Lesson, Exercise, Submission, UserRole, SubmissionStatus, Course, CourseModule, Module
 from schemas import (
     LessonCreate, LessonResponse, LessonUpdate, LessonWithExercises,
     CourseCreate, CourseResponse, CourseWithModules, CourseModuleCreate, CourseModuleResponse,
+    CourseWithNewModules, ModuleCreate, ModuleResponse, ModuleWithLessons, ModuleUpdate,
     ExerciseCreate, ExerciseResponse, ExerciseUpdate, ExerciseResponseWithTests,
     SubmissionCreate, SubmissionResponse, SubmissionWithExercise,
     Message,
@@ -151,8 +152,8 @@ async def get_course(
     "/courses/{course_id}/modules",
     response_model=CourseModuleResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create module in course",
-    description="Create a lesson module within a course. Teachers only.",
+    summary="Create module in course (legacy)",
+    description="Create a lesson module within a course. Teachers only. DEPRECATED - use new module endpoints.",
 )
 async def create_course_module(
     course_id: int,
@@ -160,7 +161,7 @@ async def create_course_module(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_teacher),
 ) -> CourseModuleResponse:
-    """Create module and attach it to a course."""
+    """Create module and attach it to a course. DEPRECATED."""
     course_result = await db.execute(
         select(Course).where(Course.id == course_id, Course.owner_id == current_user.id)
     )
@@ -192,6 +193,274 @@ async def create_course_module(
         .where(CourseModule.id == course_module.id)
     )
     return result.scalar_one()
+
+
+# ==================== NEW Module Routes ====================
+@router.get(
+    "/courses/{course_id}/modules/",
+    response_model=list[ModuleResponse],
+    summary="List modules in a course",
+    description="Get all modules for a course. Teachers only.",
+)
+async def list_modules(
+    course_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> list[ModuleResponse]:
+    """List all modules in a course."""
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    result = await db.execute(
+        select(Module)
+        .where(Module.course_id == course_id)
+        .order_by(Module.order)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/courses/{course_id}/modules/",
+    response_model=ModuleResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a module",
+    description="Create a new module in a course. Teachers only.",
+)
+async def create_module(
+    course_id: int,
+    module: ModuleCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> ModuleResponse:
+    """Create a new module in a course."""
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    db_module = Module(**module.model_dump(), course_id=course_id)
+    db.add(db_module)
+    await db.commit()
+    await db.refresh(db_module)
+    return db_module
+
+
+@router.get(
+    "/modules/{module_id}",
+    response_model=ModuleWithLessons,
+    summary="Get module with lessons",
+    description="Get a module and its lessons. Teachers only.",
+)
+async def get_module(
+    module_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> ModuleWithLessons:
+    """Get a module with its lessons."""
+    result = await db.execute(
+        select(Module)
+        .options(selectinload(Module.lessons))
+        .where(Module.id == module_id)
+    )
+    module = result.scalar_one_or_none()
+    
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == module.course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    return module
+
+
+@router.put(
+    "/modules/{module_id}",
+    response_model=ModuleResponse,
+    summary="Update a module",
+    description="Update a module. Teachers only.",
+)
+async def update_module(
+    module_id: int,
+    module_update: ModuleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> ModuleResponse:
+    """Update a module."""
+    result = await db.execute(select(Module).where(Module.id == module_id))
+    module = result.scalar_one_or_none()
+    
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == module.course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    update_data = module_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(module, field, value)
+    
+    await db.commit()
+    await db.refresh(module)
+    
+    return module
+
+
+@router.delete(
+    "/modules/{module_id}",
+    response_model=Message,
+    summary="Delete a module",
+    description="Delete a module and all its lessons. Teachers only.",
+)
+async def delete_module(
+    module_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> Message:
+    """Delete a module and all its lessons."""
+    result = await db.execute(select(Module).where(Module.id == module_id))
+    module = result.scalar_one_or_none()
+    
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == module.course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    await db.delete(module)
+    await db.commit()
+    
+    return Message(message="Module deleted successfully")
+
+
+@router.post(
+    "/modules/{module_id}/lessons/",
+    response_model=LessonResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a lesson in a module",
+    description="Create a new lesson in a module. Teachers only.",
+)
+async def create_lesson_in_module(
+    module_id: int,
+    lesson: LessonCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> LessonResponse:
+    """Create a new lesson in a module."""
+    # Verify module exists
+    module_result = await db.execute(select(Module).where(Module.id == module_id))
+    module = module_result.scalar_one_or_none()
+    
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    # Verify course belongs to teacher
+    course_result = await db.execute(
+        select(Course).where(Course.id == module.course_id, Course.owner_id == current_user.id)
+    )
+    course = course_result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Module not found")
+    
+    db_lesson = Lesson(**lesson.model_dump(), module_id=module_id)
+    db.add(db_lesson)
+    await db.commit()
+    await db.refresh(db_lesson)
+    
+    return db_lesson
+
+
+@router.get(
+    "/courses/{course_id}/modules/with-lessons/",
+    response_model=CourseWithNewModules,
+    summary="Get course with modules and lessons",
+    description="Get a course with all its modules and lessons. Teachers only.",
+)
+async def get_course_with_modules(
+    course_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> CourseWithNewModules:
+    """Get a course with all modules and their lessons."""
+    result = await db.execute(
+        select(Course)
+        .options(
+            selectinload(Course.modules).selectinload(Module.lessons)
+        )
+        .where(Course.id == course_id, Course.owner_id == current_user.id)
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return course
+
+
+# ==================== Public Course Routes (Students) ====================
+@router.get(
+    "/courses/public/",
+    response_model=list[CourseResponse],
+    summary="List published courses",
+    description="Get all published courses available for students.",
+)
+async def list_public_courses(
+    pagination: PaginationParams = Depends(),
+    db: AsyncSession = Depends(get_db),
+) -> list[CourseResponse]:
+    """List all published courses."""
+    result = await db.execute(
+        select(Course)
+        .where(Course.is_published == True)
+        .order_by(Course.created_at.desc())
+        .offset(pagination.skip)
+        .limit(pagination.limit)
+    )
+    return result.scalars().all()
+
+
+@router.get(
+    "/courses/public/{course_id}",
+    response_model=CourseWithNewModules,
+    summary="Get published course with modules",
+    description="Get a published course with all its modules and lessons.",
+)
+async def get_public_course_with_modules(
+    course_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> CourseWithNewModules:
+    """Get a published course with all modules and their lessons."""
+    result = await db.execute(
+        select(Course)
+        .options(
+            selectinload(Course.modules).selectinload(Module.lessons)
+        )
+        .where(Course.id == course_id, Course.is_published == True)
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return course
 
 
 @router.post(

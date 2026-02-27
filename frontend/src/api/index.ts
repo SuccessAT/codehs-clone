@@ -1,6 +1,7 @@
-import type { Lesson, LessonWithExercises, ExerciseDetail, Submission, QuizAnswer, Course, CourseWithModules, CourseModule, LessonProgress } from '@/types';
+import type { Lesson, LessonWithExercises, ExerciseDetail, Submission, QuizAnswer, Course, Module, LessonProgress, LessonType } from '@/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Use relative path in development to leverage Vite proxy, or custom URL in production
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 class ApiError extends Error {
     constructor(public status: number, message: string) {
@@ -31,30 +32,114 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     return response.json();
 }
 
-export const lessonsApi = {
-    list: () => fetchApi<Lesson[]>('/api/v1/lessons/'),
-
-    get: (id: number) => fetchApi<LessonWithExercises>(`/api/v1/lessons/${id}`),
-
-    create: (lesson: { title: string; description?: string; video_url?: string; order?: number }) =>
-        fetchApi<Lesson>('/api/v1/lessons', {
-            method: 'POST',
-            body: JSON.stringify(lesson),
+// Courses API
+// Courses API - public and private
+export const coursesApi = {
+    // List all courses (teachers see all their courses)
+    list: () => fetchApi<Course[]>('/api/v1/courses/'),
+    
+    // List published courses (students see public courses)
+    listPublic: () => fetchApi<Course[]>('/api/v1/courses/public/'),
+    
+    // Get course by ID (teachers only - includes unpublished)
+    get: (id: number) => fetchApi<Course>(`/api/v1/courses/${id}`),
+    
+    // Get published course (students)
+    getPublic: (id: number) => fetchApi<Course>(`/api/v1/courses/public/${id}`),
+    
+    create: (data: { title: string; description?: string }) => 
+        fetchApi<Course>('/api/v1/courses/', { 
+            method: 'POST', 
+            body: JSON.stringify(data) 
         }),
+    delete: (id: number) => fetchApi<void>(`/api/v1/courses/${id}`, { method: 'DELETE' }),
+};
 
-    getExercise: (id: number) => fetchApi<ExerciseDetail>(`/api/v1/exercises/${id}`),
+// Modules API - new endpoints for Module with multiple lessons
+export const modulesApi = {
+    // GET /courses/{course_id}/modules/ - list modules for a course
+    list: (courseId: number) => fetchApi<Module[]>(`/api/v1/courses/${courseId}/modules/`),
+    
+    // POST /courses/{course_id}/modules/ - create a new module
+    create: (courseId: number, data: { name: string; description?: string }) => 
+        fetchApi<Module>(`/api/v1/courses/${courseId}/modules/`, { 
+            method: 'POST', 
+            body: JSON.stringify(data) 
+        }),
+    
+    // GET /modules/{module_id} - get module with lessons
+    get: (moduleId: number) => fetchApi<Module>(`/api/v1/modules/${moduleId}`),
+    
+    // PUT /modules/{module_id} - update module
+    update: (moduleId: number, data: { name?: string; description?: string; order?: number }) => 
+        fetchApi<Module>(`/api/v1/modules/${moduleId}`, { 
+            method: 'PUT', 
+            body: JSON.stringify(data) 
+        }),
+    
+    // DELETE /modules/{module_id} - delete module
+    delete: (moduleId: number) => fetchApi<void>(`/api/v1/modules/${moduleId}`, { method: 'DELETE' }),
+    
+    // POST /modules/{module_id}/lessons/ - create lesson in module
+    createLesson: (moduleId: number, data: { 
+        title: string; 
+        description?: string; 
+        lesson_type: LessonType;
+        content?: string;
+        media_url?: string;
+        starter_code?: string;
+        language?: string;
+        order?: number;
+    }) => 
+        fetchApi<Lesson>(`/api/v1/modules/${moduleId}/lessons/`, { 
+            method: 'POST', 
+            body: JSON.stringify(data) 
+        }),
+    
+    // GET /courses/{course_id}/modules/with-lessons/ - get course with modules and lessons
+    getWithLessons: (courseId: number) => fetchApi<Course>(`/api/v1/courses/${courseId}/modules/with-lessons/`),
+    
+    // Legacy - for backward compatibility
+    updateOrder: (courseId: number, moduleIds: number[]) => 
+        fetchApi<void>(`/api/v1/courses/${courseId}/modules/order`, { 
+            method: 'PUT', 
+            body: JSON.stringify({ module_ids: moduleIds }) 
+        }),
+};
 
-    getMyProgress: () => fetchApi<{ total_exercises: number; completed_exercises: number; progress_percentage: number; total_submissions: number; total_points: number; lessons: LessonProgress[] }>('/api/v1/users/me/progress'),
-
+// Lessons API
+export const lessonsApi = {
+    list: (moduleId: number) => fetchApi<Lesson[]>(`/api/v1/modules/${moduleId}/lessons/`),
+    get: (id: number) => fetchApi<LessonWithExercises>(`/api/v1/lessons/${id}`),
+    create: (moduleId: number, data: { 
+        title: string; 
+        description?: string; 
+        lesson_type: LessonType;
+    }) => 
+        fetchApi<Lesson>(`/api/v1/modules/${moduleId}/lessons/`, { 
+            method: 'POST', 
+            body: JSON.stringify(data) 
+        }),
+    delete: (id: number) => fetchApi<void>(`/api/v1/lessons/${id}`, { method: 'DELETE' }),
+    updateOrder: (moduleId: number, lessonIds: number[]) => 
+        fetchApi<void>(`/api/v1/modules/${moduleId}/lessons/order`, { 
+            method: 'PUT', 
+            body: JSON.stringify({ lesson_ids: lessonIds }) 
+        }),
+    getMyProgress: () => fetchApi<{
+        total_exercises: number; 
+        completed_exercises: number; 
+        progress_percentage: number; 
+        total_submissions: number; 
+        total_points: number; 
+        lessons: LessonProgress[]
+    }>('/api/v1/users/me/progress'),
     listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions/'),
-
-    // Submit code for grading - saves to DB, runs in E2B, grades against test cases
     submitCode: (exerciseId: number, code: string) =>
         fetchApi<Submission>('/api/v1/submissions/', {
             method: 'POST',
             body: JSON.stringify({ exercise_id: exerciseId, code }),
         }),
-
     submitQuiz: (exerciseId: number, answers: QuizAnswer[]) =>
         fetchApi<{ result: { passed: boolean; score: number; feedback: string } }>(`/api/v1/exercises/${exerciseId}/submit-quiz/`, {
             method: 'POST',
@@ -62,34 +147,12 @@ export const lessonsApi = {
         }),
 };
 
-export const courseApi = {
-    list: () => fetchApi<Course[]>('/api/v1/courses'),
-    get: (id: number) => fetchApi<CourseWithModules>(`/api/v1/courses/${id}`),
-    create: (course: {
-        title: string;
-        description?: string;
-        category?: string;
-        level: 'beginner' | 'intermediate' | 'advanced';
-        theme: string;
-        is_published?: boolean;
-    }) =>
-        fetchApi<Course>('/api/v1/courses', {
-            method: 'POST',
-            body: JSON.stringify(course),
-        }),
-    createModule: (courseId: number, module: {
-        title: string;
-        description?: string;
-        video_url?: string;
-        order?: number;
-        module_type: 'concept' | 'project' | 'assessment' | 'lab' | 'review';
-    }) =>
-        fetchApi<CourseModule>(`/api/v1/courses/${courseId}/modules`, {
-            method: 'POST',
-            body: JSON.stringify(module),
-        }),
+// Exercise API
+export const exerciseApi = {
+    get: (id: number) => fetchApi<ExerciseDetail>(`/api/v1/exercises/${id}`),
 };
 
+// Auth API
 export const authApi = {
     login: (username: string, password: string) => {
         const formData = new FormData();
