@@ -9,9 +9,9 @@ Handles:
 """
 import logging
 from datetime import timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,8 @@ from dependencies import (
     create_access_token,
     check_rate_limit,
     rate_limiter,
+    security,
+    revoke_token,
     require_teacher,
 )
 import os
@@ -53,7 +55,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 )
 async def register(
     user: UserCreate,
-    request: Optional[Request],
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Register a new user."""
@@ -108,8 +110,8 @@ async def register(
     description="OAuth2 password flow authentication. Returns a JWT access token.",
 )
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
     request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """Login and get access token."""
@@ -180,6 +182,32 @@ async def refresh_token(
     )
     
     return Token(access_token=access_token, token_type="bearer")
+
+
+@router.post(
+    "/logout",
+    response_model=Message,
+    summary="Logout current user",
+    description="Revoke the current access token and logout the user.",
+)
+async def logout(
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Message:
+    """Logout and revoke the current access token."""
+    await check_rate_limit(request, user=current_user)
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    revoke_token(credentials.credentials)
+    logger.info(f"User logged out: {current_user.username} (id={current_user.id})")
+    return Message(message="Logged out successfully")
 
 
 # ==================== User Management ====================

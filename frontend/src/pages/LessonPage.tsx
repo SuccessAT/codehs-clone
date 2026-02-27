@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { lessonsApi } from '@/api';
+import { useAuth } from '@/hooks';
 import type { LessonWithExercises, Submission } from '@/types';
 import clsx from 'clsx';
 
 export default function LessonPage() {
     const { lessonId } = useParams<{ lessonId: string }>();
     const navigate = useNavigate();
+    const { logout, isLoading: isAuthLoading } = useAuth();
     const [lesson, setLesson] = useState<LessonWithExercises | null>(null);
     const [submissions, setSubmissions] = useState<Map<number, Submission>>(new Map());
     const [isLoading, setIsLoading] = useState(true);
@@ -79,15 +81,24 @@ export default function LessonPage() {
         <div className="max-w-4xl mx-auto">
             {/* Header */}
             <div className="mb-6">
-                <Link
-                    to="/dashboard"
-                    className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-primary-500 mb-4"
-                >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                    All Lessons
-                </Link>
+                <div className="flex items-start justify-between gap-4 mb-4">
+                    <Link
+                        to="/dashboard"
+                        className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-primary-500"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                        All Lessons
+                    </Link>
+                    <button
+                        onClick={logout}
+                        disabled={isAuthLoading}
+                        className="px-3 py-1.5 rounded-lg font-medium text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isAuthLoading ? 'Logging out...' : 'Logout'}
+                    </button>
+                </div>
 
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
                     {lesson.title}

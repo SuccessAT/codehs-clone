@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { lessonsApi } from '@/api';
+import { authApi, lessonsApi } from '@/api';
 import { useAuthStore } from '@/store';
 import type { QuizAnswer, Submission } from '@/types';
 
@@ -173,9 +173,15 @@ export function useAuth() {
         }
     }, [login]);
 
-    const logout = useCallback(() => {
-        localStorage.removeItem('token');
-        setLogout();
+    const logout = useCallback(async () => {
+        try {
+            await authApi.logout();
+        } catch {
+            // Continue local logout even if backend call fails.
+        } finally {
+            localStorage.removeItem('token');
+            setLogout();
+        }
     }, [setLogout]);
 
     return { isLoading, error, login, logout, register };

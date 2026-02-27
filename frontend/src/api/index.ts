@@ -36,6 +36,12 @@ export const lessonsApi = {
 
     get: (id: number) => fetchApi<LessonWithExercises>(`/api/v1/lessons/${id}`),
 
+    create: (lesson: { title: string; description?: string; video_url?: string; order?: number }) =>
+        fetchApi<Lesson>('/api/v1/lessons', {
+            method: 'POST',
+            body: JSON.stringify(lesson),
+        }),
+
     getExercise: (id: number) => fetchApi<ExerciseDetail>(`/api/v1/exercises/${id}`),
 
     getMyProgress: () => fetchApi<{ total_exercises: number; completed_exercises: number; progress_percentage: number; total_submissions: number; total_points: number }>('/api/v1/users/me/progress'),
@@ -74,4 +80,8 @@ export const authApi = {
         }),
 
     getCurrentUser: () => fetchApi<{ id: number; username: string; email: string; role: 'student' | 'teacher' }>('/api/v1/auth/me'),
+
+    logout: () => fetchApi<{ message: string }>('/api/v1/auth/logout', {
+        method: 'POST',
+    }),
 };
