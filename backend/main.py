@@ -26,6 +26,8 @@ from e2b_service import (
     get_e2b_service,
 )
 from routers import auth_router, lessons_router, execution_router
+from routers.collaboration import collaboration_router
+from yjs_server import yjs_router
 from schemas import HealthCheckResponse
 
 # Configure logging
@@ -153,6 +155,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 app.include_router(auth_router)
 app.include_router(lessons_router)
 app.include_router(execution_router)
+app.include_router(collaboration_router)
+app.include_router(yjs_router)
 
 
 # ==================== Health Check ====================

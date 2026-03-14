@@ -31,3 +31,6 @@ email-validator==2.1.0.post1
 
 # WebSocket client for E2B integration
 websockets==12.0
+
+# Yjs for CRDT-based collaborative editing
+yjs==13.6.14
