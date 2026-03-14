@@ -15,8 +15,6 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 import hashlib
 
-from yjs import Doc, apply_update, encode_state_as_update
-
 from database import get_db
 from dependencies import get_user_from_token
 
@@ -34,7 +32,7 @@ YJS_ROOM_INACTIVITY_TIMEOUT = 60 * 60  # 60 minutes in seconds (Yjs documents ar
 class YjsRoom:
     """Represents a Yjs document room."""
     id: str
-    doc: Doc = field(default_factory=Doc)  # Single merged document
+    updates: list = field(default_factory=list)  # Buffer of all updates
     last_activity: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -167,27 +165,17 @@ class YjsServer:
             pass
         
         elif step == 2:
-            # Client is requesting the full state
-            # Send the current merged document state to the client
+            # Client is requesting updates
+            # Send all buffered updates to the client
             room = self.rooms.get(connection.room_id)
             
             if room:
-                # Encode the full document state as an update
-                full_update = encode_state_as_update(room.doc)
-                
-                # Only send if there's content
-                if full_update:
-                    await websocket.send_json({
-                        "type": "sync",
-                        "step": 2,
-                        "update": base64.b64encode(full_update).decode('utf-8'),
-                    })
-                else:
-                    # Empty document
-                    await websocket.send_json({
-                        "type": "sync",
-                        "step": 2,
-                    })
+                # Send all accumulated updates
+                await websocket.send_json({
+                    "type": "sync",
+                    "step": 2,
+                    "updates": room.updates,  # Send all accumulated updates
+                })
     
     async def _handle_update(self, websocket: WebSocket, message: dict) -> None:
         """Handle document update messages."""
@@ -202,22 +190,8 @@ class YjsServer:
             if not room:
                 return
             
-            # Decode the update from base64 if needed
-            if isinstance(update, str):
-                try:
-                    update = base64.b64decode(update)
-                except Exception as e:
-                    logger.error(f"Failed to decode update: {e}")
-                    return
-            
-            # Apply update to the merged document
-            try:
-                room.doc.apply_update(update)
-            except Exception as e:
-                logger.error(f"Failed to apply update: {e}")
-                return
-            
-            # Update room activity
+            # Store update in buffer
+            room.updates.append(update)
             room.last_activity = datetime.utcnow()
             
             # Broadcast to other clients in the room
