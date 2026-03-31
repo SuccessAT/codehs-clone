@@ -1,4 +1,4 @@
-import type { Lesson, LessonWithExercises, ExerciseDetail, UserProgress, Submission, QuizAnswer } from '@/types';
+import type { Lesson, LessonWithExercises, ExerciseDetail, Submission, QuizAnswer } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 

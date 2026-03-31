@@ -46,7 +46,7 @@ class ProjectServer:
     aiohttp site is shut down before a new server instance is spawned.
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8000):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8001):
         # Host / port
         self.host = host
         self.port = port

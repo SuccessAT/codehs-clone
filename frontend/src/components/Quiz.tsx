@@ -104,7 +104,7 @@ export default function Quiz({
                             >
                                 <input
                                     type="radio"
-                                    name={question.id}
+                                    name={String(question.id)}
                                     value="True"
                                     checked={answers.get(question.id) === 'True'}
                                     onChange={() => handleAnswerChange(question.id, 'True')}
@@ -123,7 +123,7 @@ export default function Quiz({
                             >
                                 <input
                                     type="radio"
-                                    name={question.id}
+                                    name={String(question.id)}
                                     value="False"
                                     checked={answers.get(question.id) === 'False'}
                                     onChange={() => handleAnswerChange(question.id, 'False')}

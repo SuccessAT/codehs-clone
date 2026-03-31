@@ -46,7 +46,6 @@ export function useCollaboration({
     userName,
     userRole,
     initialCode = '',
-    language = 'python',
 }: UseCollaborationOptions): UseCollaborationReturn {
     const [isConnected, setIsConnected] = useState(false);
     const [collaborators, setCollaborators] = useState<Map<string, Collaborator>>(new Map());
@@ -120,7 +119,7 @@ export function useCollaboration({
             const states = awareness.getStates();
             const newCollaborators = new Map<string, Collaborator>();
 
-            states.forEach((state: any, clientId: number) => {
+            states.forEach((state: any) => {
                 if (state.user && state.user.id !== userId) {
                     newCollaborators.set(state.user.id, {
                         ...state.user,
@@ -210,38 +209,6 @@ export function useCollaboration({
                 break;
         }
     }, []);
-
-    // Bind editor to Yjs
-    const bindEditor = useCallback((editor: editor.IStandaloneCodeEditor) => {
-        if (!ydocRef.current || !providerRef.current) return;
-
-        const ytext = ydocRef.current.getText('monaco');
-
-        // Set initial content if empty
-        if (ytext.length === 0 && initialCode) {
-            ytext.insert(0, initialCode);
-        }
-
-        // Create Monaco binding
-        const binding = new MonacoBinding(
-            ytext,
-            editor.getModel()!,
-            new Set([editor]),
-            providerRef.current.awareness
-        );
-        bindingRef.current = binding;
-
-        // Listen for cursor position changes
-        editor.onDidChangeCursorPosition((event) => {
-            if (providerRef.current) {
-                providerRef.current.awareness.setLocalStateField('cursor', {
-                    line: event.position.lineNumber,
-                    column: event.position.column,
-                    selection: editor.getSelection(),
-                });
-            }
-        });
-    }, [initialCode]);
 
     // Send a new comment
     const sendComment = useCallback((comment: Omit<Comment, 'id' | 'author' | 'createdAt' | 'replies'>) => {

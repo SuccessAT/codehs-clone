@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { lessonsApi } from '@/api';
 import { useUIStore } from '@/store';
 import Editor from '@/components/Editor';
@@ -8,16 +8,12 @@ import RunButton from '@/components/RunButton';
 import Quiz from '@/components/Quiz';
 import HistorySidebar from '@/components/HistorySidebar';
 import { useSubmission } from '@/hooks';
-import { useExecution } from '@/hooks/useExecution';
+import { useSocketExecution } from '@/hooks/useSocketExecution';
 import type { ExerciseDetail, QuizAnswer, EditorFile } from '@/types';
 import clsx from 'clsx';
 
 export default function ExercisePage() {
     const { exerciseId } = useParams<{ exerciseId: string }>();
-    const navigate = useNavigate();
-    const [exercise, setExercise] = useState<ExerciseDetail | null>(null);
-    const [files, setFiles] = useState<EditorFile[]>([]);
-    const [activeFileIndex, setActiveFileIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
@@ -30,17 +26,17 @@ export default function ExercisePage() {
         exerciseId ? parseInt(exerciseId) : 0
     );
 
-    // Execution hook - for "Run" button (WebSocket streaming)
+    // Execution hook - for "Run" button (Socket.IO streaming)
     const {
         stdout: wsStdout,
         stderr: wsStderr,
         isExecuting: isWsExecuting,
         error: wsError,
-        gradingResult,
         runCode,
         cancelExecution,
+        sendInput,
         reset: resetExecution
-    } = useExecution(
+    } = useSocketExecution(
         exerciseId ? parseInt(exerciseId) : 0,
         exercise?.language || 'python'
     );
@@ -115,10 +111,10 @@ export default function ExercisePage() {
         return defaults[language] || '# Write your code here';
     };
 
-    // Handle code run via WebSocket (instant execution with streaming)
+    // Handle code run via Socket.IO (instant execution with streaming)
     const handleRunCode = useCallback(async () => {
         if (!files[activeFileIndex]?.content.trim()) return;
-        // Use WebSocket for instant execution with streaming output
+        // Use Socket.IO for instant execution with streaming output
         await runCode(files[activeFileIndex].content);
     }, [files, activeFileIndex, runCode]);
 
@@ -339,8 +335,8 @@ export default function ExercisePage() {
                                         waitingForInput={false}
                                         onClear={resetExecution}
                                         onInput={(input) => {
-                                            // TODO: Send input via WebSocket
-                                            console.log('Input:', input);
+                                            // Send input via Socket.IO
+                                            sendInput(input);
                                         }}
                                         onCancel={cancelExecution}
                                     />

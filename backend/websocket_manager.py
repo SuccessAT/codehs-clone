@@ -220,6 +220,9 @@ class WebSocketManager:
         self._executions: dict[str, ActiveExecution] = {}
         self._user_sandboxes: dict[int, str] = {}  # user_id -> sandbox_id
         self._autograder = Autograder()
+        # Lock for thread-safe access to execution state
+        self._execution_lock = asyncio.Lock()
+        self._sandbox_lock = asyncio.Lock()
     
     async def connect(
         self,
@@ -287,10 +290,11 @@ class WebSocketManager:
         self._connections.pop(connection_id, None)
         
         # Cancel any active execution
-        if connection_id in self._executions:
-            execution = self._executions[connection_id]
-            execution.cancelled = True
-            del self._executions[connection_id]
+        async with self._execution_lock:
+            if connection_id in self._executions:
+                execution = self._executions[connection_id]
+                execution.cancelled = True
+                del self._executions[connection_id]
         
         logger.info(f"WebSocket disconnected: {connection_id}")
     
@@ -368,7 +372,6 @@ class WebSocketManager:
             language=language,
             start_time=time.time(),
         )
-        self._executions[connection_id] = execution
         
         # Get sandbox
         e2b = get_e2b_service()
@@ -379,19 +382,24 @@ class WebSocketManager:
             )
             return
         
-        sandbox_id = self._user_sandboxes.get(user_id)
-        if not sandbox_id:
-            try:
-                sandbox_id = await e2b.create_sandbox(user_id=user_id, language=language)
-                self._user_sandboxes[user_id] = sandbox_id
-            except Exception as e:
-                await self._send_message(
-                    websocket,
-                    WSMessage(WSMessageType.ERROR, {"message": f"Failed to create sandbox: {str(e)}"})
-                )
-                return
+        async with self._sandbox_lock:
+            sandbox_id = self._user_sandboxes.get(user_id)
+            if not sandbox_id:
+                try:
+                    sandbox_id = await e2b.create_sandbox(user_id=user_id, language=language)
+                    self._user_sandboxes[user_id] = sandbox_id
+                except Exception as e:
+                    await self._send_message(
+                        websocket,
+                        WSMessage(WSMessageType.ERROR, {"message": f"Failed to create sandbox: {str(e)}"})
+                    )
+                    return
         
         try:
+            # Add execution to tracking with lock
+            async with self._execution_lock:
+                self._executions[connection_id] = execution
+            
             # Execute code with streaming
             result = await e2b.execute_code(
                 sandbox_id=sandbox_id,
@@ -443,7 +451,8 @@ class WebSocketManager:
                 WSMessage(WSMessageType.ERROR, {"message": str(e)})
             )
         finally:
-            self._executions.pop(connection_id, None)
+            async with self._execution_lock:
+                self._executions.pop(connection_id, None)
     
     async def _stream_output(
         self,
@@ -453,26 +462,28 @@ class WebSocketManager:
         content: str,
     ) -> None:
         """Stream output to WebSocket."""
-        if execution.cancelled:
-            return
-        
-        msg_type = WSMessageType.STDOUT if stream_type == "stdout" else WSMessageType.STDERR
-        await self._send_message(
-            websocket,
-            WSMessage(msg_type, {"content": content})
-        )
-        
-        # Accumulate output
-        if stream_type == "stdout":
-            execution.stdout += content
-        else:
-            execution.stderr += content
+        async with self._execution_lock:
+            if execution.cancelled:
+                return
+            
+            msg_type = WSMessageType.STDOUT if stream_type == "stdout" else WSMessageType.STDERR
+            await self._send_message(
+                websocket,
+                WSMessage(msg_type, {"content": content})
+            )
+            
+            # Accumulate output thread-safely
+            if stream_type == "stdout":
+                execution.stdout += content
+            else:
+                execution.stderr += content
     
     async def _handle_input(self, connection_id: str, message: dict) -> None:
         """Handle input for running program."""
-        execution = self._executions.get(connection_id)
-        if not execution:
-            return
+        async with self._execution_lock:
+            execution = self._executions.get(connection_id)
+            if not execution:
+                return
         
         input_data = message.get("data", "")
         
@@ -485,10 +496,11 @@ class WebSocketManager:
     
     async def _handle_cancel(self, connection_id: str) -> None:
         """Handle execution cancellation."""
-        execution = self._executions.get(connection_id)
-        if execution:
-            execution.cancelled = True
-            logger.info(f"Execution cancelled: {execution.execution_id}")
+        async with self._execution_lock:
+            execution = self._executions.get(connection_id)
+            if execution:
+                execution.cancelled = True
+                logger.info(f"Execution cancelled: {execution.execution_id}")
     
     async def _run_grading(
         self,

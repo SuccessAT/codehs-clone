@@ -7,6 +7,7 @@ This module contains reusable dependencies for:
 - Database sessions
 - E2B service access
 """
+import asyncio
 import hashlib
 import logging
 import os
@@ -56,14 +57,44 @@ class RateLimiter:
         self.requests_per_hour = requests_per_hour
         self._minute_requests: dict[str, list[float]] = defaultdict(list)
         self._hour_requests: dict[str, list[float]] = defaultdict(list)
+        # Lock for thread-safe access
+        self._lock = asyncio.Lock()
     
-    def _cleanup_old_requests(self, requests: list[float], window_seconds: float) -> list[float]:
-        """Remove requests older than the window."""
-        cutoff = time.time() - window_seconds
-        return [t for t in requests if t > cutoff]
-    
-    def is_allowed(self, key: str) -> tuple[bool, Optional[str]]:
+    async def is_allowed(self, key: str) -> tuple[bool, Optional[str]]:
         """
+        Check if request is allowed for the given key.
+        
+        Returns:
+            Tuple of (is_allowed, error_message)
+        """
+        async with self._lock:
+            now = time.time()
+            
+            # Clean up old requests
+            self._minute_requests[key] = self._cleanup_old_requests(
+                self._minute_requests[key], 60
+            )
+            self._hour_requests[key] = self._cleanup_old_requests(
+                self._hour_requests[key], 3600
+            )
+            
+            # Check minute limit
+            if len(self._minute_requests[key]) >= self.requests_per_minute:
+                return False, f"Rate limit exceeded: {self.requests_per_minute} requests per minute"
+            
+            # Check hour limit
+            if len(self._hour_requests[key]) >= self.requests_per_hour:
+                return False, f"Rate limit exceeded: {self.requests_per_hour} requests per hour"
+            
+            # Record this request
+            self._minute_requests[key].append(now)
+            self._hour_requests[key].append(now)
+            
+            return True, None
+    
+    def is_allowed_sync(self, key: str) -> tuple[bool, Optional[str]]:
+        """
+        Synchronous version for non-async contexts.
         Check if request is allowed for the given key.
         
         Returns:
@@ -93,19 +124,20 @@ class RateLimiter:
         
         return True, None
     
-    def get_remaining(self, key: str) -> dict[str, int]:
+    async def get_remaining(self, key: str) -> dict[str, int]:
         """Get remaining requests for the key."""
-        self._minute_requests[key] = self._cleanup_old_requests(
-            self._minute_requests[key], 60
-        )
-        self._hour_requests[key] = self._cleanup_old_requests(
-            self._hour_requests[key], 3600
-        )
-        
-        return {
-            "minute_remaining": self.requests_per_minute - len(self._minute_requests[key]),
-            "hour_remaining": self.requests_per_hour - len(self._hour_requests[key]),
-        }
+        async with self._lock:
+            self._minute_requests[key] = self._cleanup_old_requests(
+                self._minute_requests[key], 60
+            )
+            self._hour_requests[key] = self._cleanup_old_requests(
+                self._hour_requests[key], 3600
+            )
+            
+            return {
+                "minute_remaining": self.requests_per_minute - len(self._minute_requests[key]),
+                "hour_remaining": self.requests_per_hour - len(self._hour_requests[key]),
+            }
 
 
 # Global rate limiter instance
@@ -137,7 +169,7 @@ async def check_rate_limit(
             ip = request.client.host if request.client else "unknown"
         key = f"ip:{ip}"
     
-    allowed, error_message = rate_limiter.is_allowed(key)
+    allowed, error_message = await rate_limiter.is_allowed(key)
     
     if not allowed:
         raise HTTPException(

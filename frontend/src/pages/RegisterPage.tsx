@@ -17,7 +17,7 @@ export default function RegisterPage() {
             return;
         }
 
-        await register({ username, email, password, role });
+        await register(username, email, password);
     };
 
     return (

@@ -81,6 +81,8 @@ class CollaborationManager:
     def __init__(self):
         self.rooms: Dict[str, CollaborationRoom] = {}
         self.user_rooms: Dict[WebSocket, str] = {}
+        # Lock for thread-safe access to room state
+        self._room_lock = asyncio.Lock()
     
     def _cleanup_inactive_rooms(self) -> int:
         """Remove rooms that have been inactive beyond the timeout."""
@@ -164,34 +166,35 @@ class CollaborationManager:
         """Connect a user to a collaboration room."""
         await websocket.accept()
         
-        # Check room limits before creating new room
-        if room_id not in self.rooms and not self._can_create_room():
-            logger.warning(f"Room limit reached, rejecting connection to room {room_id}")
-            await websocket.close(code=1013, reason="Server is at capacity")
-            return None
-        
-        # Create room if it doesn't exist
-        if room_id not in self.rooms:
-            self.rooms[room_id] = CollaborationRoom(id=room_id)
-        
-        room = self.rooms[room_id]
-        room.last_activity = datetime.utcnow()  # Update activity timestamp
-        
-        # Generate user color based on ID
-        color = self._generate_color(user_id)
-        
-        # Create user
-        user = CollaborationUser(
-            id=user_id,
-            name=user_name,
-            role=role,
-            color=color,
-            websocket=websocket,
-        )
-        
-        # Add user to room
-        room.users[user_id] = user
-        self.user_rooms[websocket] = room_id
+        async with self._room_lock:
+            # Check room limits before creating new room
+            if room_id not in self.rooms and not self._can_create_room():
+                logger.warning(f"Room limit reached, rejecting connection to room {room_id}")
+                await websocket.close(code=1013, reason="Server is at capacity")
+                return None
+            
+            # Create room if it doesn't exist
+            if room_id not in self.rooms:
+                self.rooms[room_id] = CollaborationRoom(id=room_id)
+            
+            room = self.rooms[room_id]
+            room.last_activity = datetime.utcnow()  # Update activity timestamp
+            
+            # Generate user color based on ID
+            color = self._generate_color(user_id)
+            
+            # Create user
+            user = CollaborationUser(
+                id=user_id,
+                name=user_name,
+                role=role,
+                color=color,
+                websocket=websocket,
+            )
+            
+            # Add user to room
+            room.users[user_id] = user
+            self.user_rooms[websocket] = room_id
         
         # Notify others about new user
         await self._broadcast_to_room(
@@ -237,42 +240,43 @@ class CollaborationManager:
     
     async def disconnect(self, websocket: WebSocket) -> None:
         """Disconnect a user from their room."""
-        room_id = self.user_rooms.pop(websocket, None)
-        
-        if not room_id or room_id not in self.rooms:
-            return
-        
-        room = self.rooms[room_id]
-        
-        # Find and remove user
-        user_to_remove = None
-        for user_id, user in room.users.items():
-            if user.websocket == websocket:
-                user_to_remove = user
-                break
-        
-        if user_to_remove:
-            del room.users[user_to_remove.id]
+        async with self._room_lock:
+            room_id = self.user_rooms.pop(websocket, None)
             
-            # Notify others
-            await self._broadcast_to_room(
-                room_id,
-                {
-                    "type": "USER_LEAVE",
-                    "payload": {"userId": user_to_remove.id},
-                    "userId": user_to_remove.id,
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-            )
+            if not room_id or room_id not in self.rooms:
+                return
             
-            logger.info(f"User {user_to_remove.name} ({user_to_remove.id}) left room {room_id}")
-        
-        # Update last activity timestamp
-        room.last_activity = datetime.utcnow()
-        
-        # Clean up empty rooms
-        if not room.users:
-            del self.rooms[room_id]
+            room = self.rooms[room_id]
+            
+            # Find and remove user
+            user_to_remove = None
+            for user_id, user in room.users.items():
+                if user.websocket == websocket:
+                    user_to_remove = user
+                    break
+            
+            if user_to_remove:
+                del room.users[user_to_remove.id]
+                
+                # Notify others
+                await self._broadcast_to_room(
+                    room_id,
+                    {
+                        "type": "USER_LEAVE",
+                        "payload": {"userId": user_to_remove.id},
+                        "userId": user_to_remove.id,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
+                
+                logger.info(f"User {user_to_remove.name} ({user_to_remove.id}) left room {room_id}")
+            
+            # Update last activity timestamp
+            room.last_activity = datetime.utcnow()
+            
+            # Clean up empty rooms
+            if not room.users:
+                del self.rooms[room_id]
     
     async def handle_message(self, websocket: WebSocket, message: dict, user_id: str) -> None:
         """Handle an incoming message from a user."""

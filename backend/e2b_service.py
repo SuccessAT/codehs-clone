@@ -1,25 +1,22 @@
 """
-E2B Sandbox Service - WebSocket integration for code execution.
+E2B Sandbox Service - Official SDK integration for code execution.
 
-This module provides async integration with a self-hosted E2B terminal
+This module provides async integration with the official E2B SDK
 for secure code execution in isolated sandboxes.
 """
+
 import asyncio
-import json
 import logging
+import os
 import time
 import uuid
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Optional
-import threading
+from typing import Any, Callable, Dict, Optional, Set
 
-import websockets
-from websockets.client import WebSocketClientProtocol
-
-from database import settings
-
+from e2b import Sandbox
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -55,7 +52,7 @@ class SandboxSession:
     status: SandboxStatus = SandboxStatus.ACTIVE
     language: str = "python"
     execution_count: int = 0
-    
+
     def is_expired(self, timeout_minutes: int = 30) -> bool:
         """Check if sandbox has been inactive for too long."""
         return datetime.utcnow() - self.last_activity > timedelta(minutes=timeout_minutes)
@@ -65,7 +62,7 @@ class SandboxSession:
 class PendingExecution:
     """Tracks a pending execution waiting for response."""
     execution_id: str
-    event: asyncio.Event = field(default_factory=asyncio.Event)
+    event: asyncio.Event
     result: Optional[ExecutionResult] = None
     stdout_callback: Optional[Callable[[str], None]] = None
     stderr_callback: Optional[Callable[[str], None]] = None
@@ -73,7 +70,7 @@ class PendingExecution:
 
 
 class E2BConnectionError(Exception):
-    """Raised when E2B WebSocket connection fails."""
+    """Raised when E2B service is not properly configured."""
     pass
 
 
@@ -89,53 +86,24 @@ class ExecutionTimeoutError(Exception):
 
 class E2BService:
     """
-    Async service for managing E2B sandbox sessions and code execution.
+    Async service for managing E2B sandbox sessions and code execution using the official SDK.
     
     Features:
-    - Thread-safe WebSocket connection pool
-    - Automatic reconnection with exponential backoff
+    - Official E2B SDK integration
     - Sandbox lifecycle management (30 min inactivity timeout)
     - Streaming stdout/stderr via callbacks
     - Concurrent execution support per user
-    
-    Usage:
-        service = E2BService()
-        await service.connect()
-        
-        sandbox_id = await service.create_sandbox(user_id=1)
-        result = await service.execute_code(
-            sandbox_id, 
-            "print('Hello')", 
-            "python",
-            on_stdout=lambda s: print(f"stdout: {s}"),
-            on_stderr=lambda s: print(f"stderr: {s}")
-        )
-        
-        await service.disconnect()
     """
     
     # Configuration constants
-    MAX_RECONNECT_RETRIES = 5
-    RECONNECT_BASE_DELAY = 1.0  # seconds
-    RECONNECT_MAX_DELAY = 30.0  # seconds
-    EXECUTION_TIMEOUT = 30.0  # seconds
     SANDBOX_INACTIVITY_TIMEOUT = 30  # minutes
-    HEARTBEAT_INTERVAL = 30  # seconds
-    CONNECTION_TIMEOUT = 10.0  # seconds
-    
-    def __init__(self, ws_url: Optional[str] = None):
-        """
-        Initialize E2B service.
-        
-        Args:
-            ws_url: WebSocket URL for E2B terminal. Defaults to WS_E2B_URL from settings.
-        """
-        self.ws_url = ws_url or settings.WS_E2B_URL
-        self._ws: Optional[WebSocketClientProtocol] = None
-        self._lock = asyncio.Lock()
-        self._connected = False
-        self._connecting = False
-        self._reconnect_attempts = 0
+    EXECUTION_TIMEOUT = 30.0  # seconds
+
+    def __init__(self):
+        """Initialize E2B service with official SDK."""
+        self.api_key = os.getenv("E2B_API_KEY")
+        if not self.api_key:
+            logger.warning("E2B_API_KEY not set - E2B service will be unavailable")
         
         # Active sandbox sessions: sandbox_id -> SandboxSession
         self._sandboxes: dict[str, SandboxSession] = {}
@@ -146,139 +114,22 @@ class E2BService:
         # User sandbox mapping: user_id -> set of sandbox_ids
         self._user_sandboxes: dict[int, set[str]] = {}
         
-        # Background tasks
-        self._receive_task: Optional[asyncio.Task] = None
-        self._cleanup_task: Optional[asyncio.Task] = None
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        
         # Thread safety for cross-thread access
         self._thread_lock = threading.Lock()
+        # Async lock for async operations
+        self._async_lock = asyncio.Lock()
         
         # Shutdown flag
         self._shutdown = False
 
     @property
-    def is_connected(self) -> bool:
-        """Check if WebSocket is connected."""
-        return self._connected and self._ws is not None and self._ws.open
-
-    async def connect(self) -> None:
-        """
-        Establish WebSocket connection to E2B terminal.
-        
-        Raises:
-            E2BConnectionError: If connection fails after all retries.
-        """
-        if self._connected or self._connecting:
-            return
-            
-        async with self._lock:
-            if self._connected or self._connecting:
-                return
-                
-            self._connecting = True
-            
-        try:
-            await self._connect_with_retry()
-            self._connected = True
-            self._reconnect_attempts = 0
-            
-            # Start background tasks
-            self._receive_task = asyncio.create_task(self._receive_loop())
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-            
-            logger.info(f"Connected to E2B WebSocket at {self.ws_url}")
-            
-        except Exception as e:
-            self._connecting = False
-            raise E2BConnectionError(f"Failed to connect to E2B: {e}") from e
-        finally:
-            self._connecting = False
-
-    async def _connect_with_retry(self) -> None:
-        """Connect with exponential backoff retry."""
-        last_error: Optional[Exception] = None
-        
-        for attempt in range(self.MAX_RECONNECT_RETRIES):
-            try:
-                logger.info(f"Connecting to E2B WebSocket (attempt {attempt + 1}/{self.MAX_RECONNECT_RETRIES})...")
-                
-                self._ws = await asyncio.wait_for(
-                    websockets.connect(
-                        self.ws_url,
-                        ping_interval=20,
-                        ping_timeout=10,
-                        close_timeout=5,
-                    ),
-                    timeout=self.CONNECTION_TIMEOUT
-                )
-                
-                logger.info("E2B WebSocket connection established")
-                return
-                
-            except asyncio.TimeoutError:
-                last_error = E2BConnectionError(f"Connection timeout after {self.CONNECTION_TIMEOUT}s")
-                logger.warning(f"Connection attempt {attempt + 1} timed out")
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
-            
-            if attempt < self.MAX_RECONNECT_RETRIES - 1:
-                delay = min(
-                    self.RECONNECT_BASE_DELAY * (2 ** attempt),
-                    self.RECONNECT_MAX_DELAY
-                )
-                logger.info(f"Retrying in {delay:.1f} seconds...")
-                await asyncio.sleep(delay)
-        
-        raise E2BConnectionError(f"Failed after {self.MAX_RECONNECT_RETRIES} attempts: {last_error}")
-
-    async def disconnect(self) -> None:
-        """
-        Disconnect from E2B WebSocket and cleanup resources.
-        """
-        self._shutdown = True
-        self._connected = False
-        
-        # Cancel background tasks
-        for task in [self._receive_task, self._cleanup_task, self._heartbeat_task]:
-            if task and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        
-        # Terminate all active sandboxes
-        for sandbox_id in list(self._sandboxes.keys()):
-            try:
-                await self._terminate_sandbox_internal(sandbox_id)
-            except Exception as e:
-                logger.warning(f"Error terminating sandbox {sandbox_id}: {e}")
-        
-        # Close WebSocket
-        if self._ws and self._ws.open:
-            try:
-                await self._ws.close()
-            except Exception as e:
-                logger.warning(f"Error closing WebSocket: {e}")
-        
-        self._ws = None
-        logger.info("Disconnected from E2B WebSocket")
-
-    async def _ensure_connected(self) -> None:
-        """Ensure WebSocket is connected, reconnect if necessary."""
-        if self._shutdown:
-            raise E2BConnectionError("Service is shut down")
-            
-        if not self.is_connected:
-            logger.info("WebSocket not connected, attempting to reconnect...")
-            await self.connect()
+    def is_available(self) -> bool:
+        """Check if E2B service is available (has API key)."""
+        return bool(self.api_key)
 
     async def create_sandbox(self, user_id: int, language: str = "python") -> str:
         """
-        Create a new sandbox for a user.
+        Create a new sandbox for a user using the official E2B SDK.
         
         Args:
             user_id: The user ID creating the sandbox.
@@ -288,55 +139,47 @@ class E2BService:
             The sandbox ID.
             
         Raises:
-            E2BConnectionError: If not connected to E2B.
+            E2BConnectionError: If E2B service is not available.
             SandboxCreationError: If sandbox creation fails.
         """
-        await self._ensure_connected()
+        if not self.is_available:
+            raise E2BConnectionError("E2B service is not available. Please set E2B_API_KEY environment variable.")
         
-        # Generate a unique sandbox ID
-        sandbox_id = f"sandbox-{uuid.uuid4().hex[:12]}"
-        
-        # Create sandbox session tracking
-        session = SandboxSession(
-            sandbox_id=sandbox_id,
-            user_id=user_id,
-            created_at=datetime.utcnow(),
-            last_activity=datetime.utcnow(),
-            status=SandboxStatus.CREATING,
-            language=language,
-        )
-        
-        try:
-            # Send create request to E2B
-            message = {
-                "action": "create_instance",
-                "user_id": user_id,
-                "sandbox_id": sandbox_id,
-                "language": language,
-            }
-            
-            await self._send_message(message)
-            
-            # Wait for confirmation (with timeout)
-            # The actual confirmation will come via the receive loop
-            # For now, we'll mark it as active immediately
-            # In production, you might want to wait for a confirmation message
-            
-            session.status = SandboxStatus.ACTIVE
-            self._sandboxes[sandbox_id] = session
-            
-            # Track user's sandboxes
-            if user_id not in self._user_sandboxes:
-                self._user_sandboxes[user_id] = set()
-            self._user_sandboxes[user_id].add(sandbox_id)
-            
-            logger.info(f"Created sandbox {sandbox_id} for user {user_id}")
-            return sandbox_id
-            
-        except Exception as e:
-            session.status = SandboxStatus.ERROR
-            logger.error(f"Failed to create sandbox for user {user_id}: {e}")
-            raise SandboxCreationError(f"Failed to create sandbox: {e}") from e
+        # Use lock to prevent race conditions when creating sandboxes for the same user
+        async with self._async_lock:
+            try:
+                # Create sandbox using official E2B SDK
+                sandbox = await Sandbox.create(
+                    api_key=self.api_key,
+                    template=language
+                )
+                
+                sandbox_id = sandbox.sandbox_id
+                
+                # Create sandbox session tracking
+                session = SandboxSession(
+                    sandbox_id=sandbox_id,
+                    user_id=user_id,
+                    created_at=datetime.utcnow(),
+                    last_activity=datetime.utcnow(),
+                    status=SandboxStatus.ACTIVE,
+                    language=language,
+                )
+                
+                # Store sandbox session
+                self._sandboxes[sandbox_id] = session
+                
+                # Track user's sandboxes
+                if user_id not in self._user_sandboxes:
+                    self._user_sandboxes[user_id] = set()
+                self._user_sandboxes[user_id].add(sandbox_id)
+                
+                logger.info(f"Created sandbox {sandbox_id} for user {user_id} with language {language}")
+                return sandbox_id
+                
+            except Exception as e:
+                logger.error(f"Failed to create sandbox for user {user_id}: {e}")
+                raise SandboxCreationError(f"Failed to create sandbox: {e}") from e
 
     async def execute_code(
         self,
@@ -349,7 +192,7 @@ class E2BService:
         timeout: Optional[float] = None,
     ) -> ExecutionResult:
         """
-        Execute code in a sandbox.
+        Execute code in a sandbox using the official E2B SDK.
         
         Args:
             sandbox_id: The sandbox ID to execute in.
@@ -364,11 +207,12 @@ class E2BService:
             ExecutionResult with stdout, stderr, exit_code.
             
         Raises:
-            E2BConnectionError: If not connected.
+            E2BConnectionError: If E2B service is not available.
             ExecutionTimeoutError: If execution times out.
             ValueError: If sandbox doesn't exist or is inactive.
         """
-        await self._ensure_connected()
+        if not self.is_available:
+            raise E2BConnectionError("E2B service is not available. Please set E2B_API_KEY environment variable.")
         
         # Validate sandbox
         if sandbox_id not in self._sandboxes:
@@ -389,51 +233,57 @@ class E2BService:
         # Create pending execution tracker
         pending = PendingExecution(
             execution_id=execution_id,
+            event=asyncio.Event(),
             stdout_callback=on_stdout,
             stderr_callback=on_stderr,
         )
         self._pending_executions[execution_id] = pending
         
         try:
-            # Send execution request
-            message = {
-                "action": "execute",
-                "sandbox_id": sandbox_id,
-                "execution_id": execution_id,
+            # Get the sandbox instance
+            sandbox = self._sandboxes[sandbox_id]
+            
+            # Prepare execution parameters
+            execute_kwargs = {
                 "code": code,
                 "language": language,
-                "input": input_data,
                 "timeout": timeout,
             }
             
-            start_time = time.time()
-            await self._send_message(message)
+            if input_data:
+                execute_kwargs["input"] = input_data
             
-            # Wait for completion with timeout
-            try:
-                await asyncio.wait_for(
-                    pending.event.wait(),
-                    timeout=timeout + 5  # Extra buffer for network
-                )
-            except asyncio.TimeoutError:
-                pending.result = ExecutionResult(
-                    stdout=pending.result.stdout if pending.result else "",
-                    stderr=pending.result.stderr if pending.result else "",
-                    timed_out=True,
-                    error="Execution timed out",
-                )
+            # Add callbacks if provided
+            if on_stdout:
+                execute_kwargs["on_stdout"] = on_stdout
+            if on_stderr:
+                execute_kwargs["on_stderr"] = on_stderr
+            
+            # Execute code
+            start_time = time.time()
+            execution = await sandbox.run_code(**execute_kwargs)
             
             # Update session activity
             session.last_activity = datetime.utcnow()
             session.execution_count += 1
             
-            result = pending.result or ExecutionResult(
-                error="No response received from E2B",
+            # Create result
+            result = ExecutionResult(
+                stdout=execution.stdout,
+                stderr=execution.stderr,
+                exit_code=execution.exit_code,
+                execution_time=time.time() - start_time,
+                error=execution.error,
+                timed_out=execution.timed_out
             )
-            result.execution_time = time.time() - start_time
             
             return result
             
+        except asyncio.TimeoutError:
+            raise ExecutionTimeoutError(f"Execution timed out after {timeout} seconds")
+        except Exception as e:
+            logger.error(f"Error executing code in sandbox {sandbox_id}: {e}")
+            raise
         finally:
             # Cleanup pending execution
             self._pending_executions.pop(execution_id, None)
@@ -452,16 +302,30 @@ class E2BService:
             execution_id: The current execution ID.
             input_data: The input to send.
         """
-        await self._ensure_connected()
+        if not self.is_available:
+            raise E2BConnectionError("E2B service is not available. Please set E2B_API_KEY environment variable.")
         
-        message = {
-            "action": "send_input",
-            "sandbox_id": sandbox_id,
-            "execution_id": execution_id,
-            "input": input_data,
-        }
+        # Validate sandbox
+        if sandbox_id not in self._sandboxes:
+            raise ValueError(f"Sandbox {sandbox_id} not found")
         
-        await self._send_message(message)
+        session = self._sandboxes[sandbox_id]
+        if session.status != SandboxStatus.ACTIVE:
+            raise ValueError(f"Sandbox {sandbox_id} is not active (status: {session.status})")
+        
+        try:
+            # Get the sandbox instance
+            sandbox = self._sandboxes[sandbox_id]
+            
+            # Send input
+            await sandbox.send_input(input_data)
+            
+            # Update session activity
+            session.last_activity = datetime.utcnow()
+            
+        except Exception as e:
+            logger.error(f"Error sending input to sandbox {sandbox_id}: {e}")
+            raise
 
     async def terminate_sandbox(self, sandbox_id: str) -> None:
         """
@@ -470,6 +334,9 @@ class E2BService:
         Args:
             sandbox_id: The sandbox ID to terminate.
         """
+        if not self.is_available:
+            raise E2BConnectionError("E2B service is not available. Please set E2B_API_KEY environment variable.")
+        
         await self._terminate_sandbox_internal(sandbox_id)
 
     async def _terminate_sandbox_internal(self, sandbox_id: str) -> None:
@@ -477,267 +344,96 @@ class E2BService:
         if sandbox_id not in self._sandboxes:
             return
         
-        session = self._sandboxes[sandbox_id]
-        
         try:
-            if self.is_connected:
-                message = {
-                    "action": "terminate_instance",
-                    "sandbox_id": sandbox_id,
-                }
-                await self._send_message(message)
+            # Get the sandbox instance
+            sandbox = self._sandboxes[sandbox_id]
+            
+            # Terminate sandbox
+            await sandbox.kill()
+            
+            # Update session status
+            if sandbox_id in self._sandboxes:
+                self._sandboxes[sandbox_id].status = SandboxStatus.TERMINATED
+            
+            # Remove from tracking
+            del self._sandboxes[sandbox_id]
+            
+            # Update user sandbox mapping
+            session = self._sandboxes.get(sandbox_id)
+            if session and session.user_id in self._user_sandboxes:
+                self._user_sandboxes[session.user_id].discard(sandbox_id)
+                if not self._user_sandboxes[session.user_id]:
+                    del self._user_sandboxes[session.user_id]
+            
+            logger.info(f"Terminated sandbox {sandbox_id}")
+            
         except Exception as e:
-            logger.warning(f"Error sending terminate message for {sandbox_id}: {e}")
-        
-        # Update session status
-        session.status = SandboxStatus.TERMINATED
-        
-        # Remove from tracking
-        del self._sandboxes[sandbox_id]
-        
-        if session.user_id in self._user_sandboxes:
-            self._user_sandboxes[session.user_id].discard(sandbox_id)
-            if not self._user_sandboxes[session.user_id]:
-                del self._user_sandboxes[session.user_id]
-        
-        logger.info(f"Terminated sandbox {sandbox_id}")
+            logger.warning(f"Error terminating sandbox {sandbox_id}: {e}")
+            # Still remove from tracking even if termination failed
+            if sandbox_id in self._sandboxes:
+                del self._sandboxes[sandbox_id]
+            
+            # Update user sandbox mapping
+            session = self._sandboxes.get(sandbox_id)
+            if session and session.user_id in self._user_sandboxes:
+                self._user_sandboxes[session.user_id].discard(sandbox_id)
+                if not self._user_sandboxes[session.user_id]:
+                    del self._user_sandboxes[session.user_id]
 
-    async def get_sandbox(self, sandbox_id: str) -> Optional[SandboxSession]:
-        """Get sandbox session by ID."""
+    def get_user_sandboxes(self, user_id: int) -> list[str]:
+        """
+        Get all sandbox IDs for a user.
+        
+        Args:
+            user_id: The user ID.
+            
+        Returns:
+            List of sandbox IDs.
+        """
+        return list(self._user_sandboxes.get(user_id, set()))
+
+    def get_sandbox_info(self, sandbox_id: str) -> Optional[SandboxSession]:
+        """
+        Get sandbox session information.
+        
+        Args:
+            sandbox_id: The sandbox ID.
+            
+        Returns:
+            SandboxSession if found, None otherwise.
+        """
         return self._sandboxes.get(sandbox_id)
 
-    async def get_user_sandboxes(self, user_id: int) -> list[SandboxSession]:
-        """Get all active sandboxes for a user."""
-        sandbox_ids = self._user_sandboxes.get(user_id, set())
-        return [
-            self._sandboxes[sid]
-            for sid in sandbox_ids
-            if sid in self._sandboxes
-        ]
-
-    async def _send_message(self, message: dict[str, Any]) -> None:
-        """Send a JSON message to the WebSocket."""
-        if not self._ws or not self._ws.open:
-            raise E2BConnectionError("WebSocket not connected")
+    async def cleanup_expired_sandboxes(self) -> int:
+        """
+        Clean up expired sandboxes.
         
-        async with self._lock:
+        Returns:
+            Number of sandboxes cleaned up.
+        """
+        if not self.is_available:
+            return 0
+        
+        expired_sandboxes = []
+        for sandbox_id, session in self._sandboxes.items():
+            if session.is_expired(self.SANDBOX_INACTIVITY_TIMEOUT):
+                expired_sandboxes.append(sandbox_id)
+        
+        count = 0
+        for sandbox_id in expired_sandboxes:
             try:
-                await self._ws.send(json.dumps(message))
+                await self._terminate_sandbox_internal(sandbox_id)
+                count += 1
             except Exception as e:
-                logger.error(f"Error sending message: {e}")
-                self._connected = False
-                raise E2BConnectionError(f"Failed to send message: {e}") from e
-
-    async def _receive_loop(self) -> None:
-        """Background task to receive and process messages."""
-        while not self._shutdown and self._connected:
-            try:
-                if not self._ws or not self._ws.open:
-                    await asyncio.sleep(0.1)
-                    continue
-                
-                try:
-                    message = await asyncio.wait_for(
-                        self._ws.recv(),
-                        timeout=60.0
-                    )
-                except asyncio.TimeoutError:
-                    # No message received, continue loop
-                    continue
-                
-                await self._handle_message(message)
-                
-            except websockets.ConnectionClosed as e:
-                logger.warning(f"WebSocket connection closed: {e}")
-                self._connected = False
-                
-                # Attempt to reconnect
-                if not self._shutdown:
-                    try:
-                        await self._reconnect()
-                    except Exception as reconnect_error:
-                        logger.error(f"Reconnection failed: {reconnect_error}")
-                        await asyncio.sleep(5)
-                        
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in receive loop: {e}")
-                await asyncio.sleep(0.1)
-
-    async def _handle_message(self, message: str | bytes) -> None:
-        """Handle incoming WebSocket message."""
-        try:
-            data = json.loads(message)
-            action = data.get("action", "")
-            
-            if action == "execution_output":
-                await self._handle_execution_output(data)
-            elif action == "execution_complete":
-                await self._handle_execution_complete(data)
-            elif action == "sandbox_created":
-                await self._handle_sandbox_created(data)
-            elif action == "sandbox_terminated":
-                await self._handle_sandbox_terminated(data)
-            elif action == "error":
-                await self._handle_error(data)
-            elif action == "pong":
-                # Heartbeat response
-                pass
-            else:
-                logger.debug(f"Unknown message action: {action}")
-                
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse message: {e}")
-        except Exception as e:
-            logger.error(f"Error handling message: {e}")
-
-    async def _handle_execution_output(self, data: dict) -> None:
-        """Handle execution output (stdout/stderr streaming)."""
-        execution_id = data.get("execution_id")
-        stream = data.get("stream", "stdout")  # stdout or stderr
-        content = data.get("content", "")
+                logger.warning(f"Error cleaning up expired sandbox {sandbox_id}: {e}")
         
-        if not execution_id or execution_id not in self._pending_executions:
-            return
+        if count > 0:
+            logger.info(f"Cleaned up {count} expired sandboxes")
         
-        pending = self._pending_executions[execution_id]
-        
-        if stream == "stdout":
-            pending.result = pending.result or ExecutionResult()
-            pending.result.stdout += content
-            if pending.stdout_callback:
-                try:
-                    pending.stdout_callback(content)
-                except Exception as e:
-                    logger.warning(f"Error in stdout callback: {e}")
-        elif stream == "stderr":
-            pending.result = pending.result or ExecutionResult()
-            pending.result.stderr += content
-            if pending.stderr_callback:
-                try:
-                    pending.stderr_callback(content)
-                except Exception as e:
-                    logger.warning(f"Error in stderr callback: {e}")
-
-    async def _handle_execution_complete(self, data: dict) -> None:
-        """Handle execution completion."""
-        execution_id = data.get("execution_id")
-        
-        if not execution_id or execution_id not in self._pending_executions:
-            return
-        
-        pending = self._pending_executions[execution_id]
-        pending.result = pending.result or ExecutionResult()
-        
-        # Update with final results
-        pending.result.exit_code = data.get("exit_code")
-        pending.result.stdout += data.get("stdout", "")
-        pending.result.stderr += data.get("stderr", "")
-        
-        if data.get("timed_out"):
-            pending.result.timed_out = True
-            pending.result.error = "Execution timed out"
-        
-        # Signal completion
-        pending.event.set()
-
-    async def _handle_sandbox_created(self, data: dict) -> None:
-        """Handle sandbox creation confirmation."""
-        sandbox_id = data.get("sandbox_id")
-        if sandbox_id and sandbox_id in self._sandboxes:
-            self._sandboxes[sandbox_id].status = SandboxStatus.ACTIVE
-            logger.debug(f"Sandbox {sandbox_id} creation confirmed")
-
-    async def _handle_sandbox_terminated(self, data: dict) -> None:
-        """Handle sandbox termination notification."""
-        sandbox_id = data.get("sandbox_id")
-        if sandbox_id and sandbox_id in self._sandboxes:
-            await self._terminate_sandbox_internal(sandbox_id)
-
-    async def _handle_error(self, data: dict) -> None:
-        """Handle error message from E2B."""
-        error_code = data.get("code", "unknown")
-        error_message = data.get("message", "Unknown error")
-        sandbox_id = data.get("sandbox_id")
-        execution_id = data.get("execution_id")
-        
-        logger.error(f"E2B error [{error_code}]: {error_message}")
-        
-        # If error is related to a pending execution, fail it
-        if execution_id and execution_id in self._pending_executions:
-            pending = self._pending_executions[execution_id]
-            pending.result = pending.result or ExecutionResult()
-            pending.result.error = f"{error_code}: {error_message}"
-            pending.event.set()
-        
-        # If sandbox error, update status
-        if sandbox_id and sandbox_id in self._sandboxes:
-            self._sandboxes[sandbox_id].status = SandboxStatus.ERROR
-
-    async def _reconnect(self) -> None:
-        """Attempt to reconnect to E2B WebSocket."""
-        logger.info("Attempting to reconnect to E2B WebSocket...")
-        
-        async with self._lock:
-            if self._connecting:
-                return
-            self._connecting = True
-        
-        try:
-            # Close old connection if any
-            if self._ws and self._ws.open:
-                try:
-                    await self._ws.close()
-                except Exception:
-                    pass
-            
-            # Reconnect with retry
-            await self._connect_with_retry()
-            self._connected = True
-            self._reconnect_attempts = 0
-            
-            logger.info("Successfully reconnected to E2B WebSocket")
-            
-        finally:
-            self._connecting = False
-
-    async def _cleanup_loop(self) -> None:
-        """Background task to cleanup expired sandboxes."""
-        while not self._shutdown:
-            try:
-                await asyncio.sleep(60)  # Check every minute
-                
-                expired = [
-                    sid for sid, session in self._sandboxes.items()
-                    if session.is_expired(self.SANDBOX_INACTIVITY_TIMEOUT)
-                ]
-                
-                for sandbox_id in expired:
-                    logger.info(f"Terminating expired sandbox {sandbox_id}")
-                    await self._terminate_sandbox_internal(sandbox_id)
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in cleanup loop: {e}")
-
-    async def _heartbeat_loop(self) -> None:
-        """Background task to send heartbeats."""
-        while not self._shutdown:
-            try:
-                await asyncio.sleep(self.HEARTBEAT_INTERVAL)
-                
-                if self.is_connected:
-                    await self._send_message({"action": "ping"})
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning(f"Error sending heartbeat: {e}")
+        return count
 
 
-# Global service instance (singleton pattern)
+# Global E2B service instance
 _e2b_service: Optional[E2BService] = None
 _e2b_lock = threading.Lock()
 
@@ -750,7 +446,6 @@ def get_e2b_service() -> E2BService:
         The singleton E2BService instance.
     """
     global _e2b_service
-    
     with _e2b_lock:
         if _e2b_service is None:
             _e2b_service = E2BService()
@@ -759,21 +454,33 @@ def get_e2b_service() -> E2BService:
 
 async def init_e2b_service() -> E2BService:
     """
-    Initialize and connect the global E2B service.
+    Initialize and return the global E2B service.
     
     Returns:
-        The connected E2BService instance.
+        The initialized E2BService instance.
     """
     service = get_e2b_service()
-    await service.connect()
+    # Note: The E2B service doesn't require explicit connection initialization
+    # with the official SDK - it's ready to use once the API key is set
+    logger.info(f"E2B service initialized. Available: {service.is_available}")
     return service
 
 
 async def shutdown_e2b_service() -> None:
     """Shutdown the global E2B service."""
     global _e2b_service
-    
     with _e2b_lock:
         if _e2b_service is not None:
-            await _e2b_service.disconnect()
-            _e2b_service = None
+            # Clean up any remaining sandboxes
+            try:
+                # Note: With the official SDK, sandboxes are managed remotely
+                # and will be cleaned up automatically based on timeout
+                # We just clear our local tracking
+                _e2b_service._sandboxes.clear()
+                _e2b_service._user_sandboxes.clear()
+                _e2b_service._pending_executions.clear()
+                logger.info("E2B service shutdown completed")
+            except Exception as e:
+                logger.warning(f"Error during E2B service shutdown: {e}")
+            finally:
+                _e2b_service = None

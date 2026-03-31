@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
+import { io, Socket } from 'socket.io-client';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:8000';
 
 interface ExecutionMessage {
     type: string;
@@ -34,7 +35,7 @@ interface GradingResult {
     }>;
 }
 
-export function useExecution(exerciseId: number, language?: string) {
+export function useSocketExecution(exerciseId: number, language?: string) {
     const [stdout, setStdout] = useState('');
     const [stderr, setStderr] = useState('');
     const [isExecuting, setIsExecuting] = useState(false);
@@ -42,13 +43,13 @@ export function useExecution(exerciseId: number, language?: string) {
     const [sandboxReady, setSandboxReady] = useState(false);
     const [gradingResult, setGradingResult] = useState<GradingResult | null>(null);
 
-    const wsRef = useRef<WebSocket | null>(null);
+    const socketRef = useRef<Socket | null>(null);
     const { token, user } = useAuthStore();
 
     // Default language if not provided
     const lang = language || 'python';
 
-    // Connect to WebSocket
+    // Connect to Socket.IO
     const connect = useCallback(() => {
         if (!token || !user) {
             setError('Not authenticated');
@@ -56,21 +57,30 @@ export function useExecution(exerciseId: number, language?: string) {
         }
 
         // Close existing connection
-        if (wsRef.current) {
-            wsRef.current.close();
+        if (socketRef.current) {
+            socketRef.current.disconnect();
         }
 
-        const wsUrl = `${API_BASE_URL.replace('http', 'ws')}/api/v1/ws/execute/${user.id}?token=${token}`;
-        const ws = new WebSocket(wsUrl);
+        const socket = io(SOCKET_URL, {
+            auth: {
+                token: token
+            }
+        });
 
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-        };
+        socket.on('connect', () => {
+            console.log('Socket.IO connected');
+            // Join the user's execution room
+            socket.emit('join_execution_room', { userId: user.id });
+        });
 
-        ws.onmessage = (event) => {
+        socket.on('disconnect', () => {
+            console.log('Socket.IO disconnected');
+            setSandboxReady(false);
+            setIsExecuting(false);
+        });
+
+        socket.on('execution_message', (message: ExecutionMessage) => {
             try {
-                const message: ExecutionMessage = JSON.parse(event.data);
-
                 switch (message.type) {
                     case 'sandbox_ready':
                         setSandboxReady(true);
@@ -96,43 +106,43 @@ export function useExecution(exerciseId: number, language?: string) {
                     case 'grading':
                         // Intermediate grading progress
                         break;
+                    case 'input_request':
+                        // Handle input request from server
+                        // This would typically trigger showing an input field in the UI
+                        // For now, we'll just log it - the Console component handles input
+                        console.log('Input requested:', message.data);
+                        break;
                 }
             } catch (e) {
-                console.error('Failed to parse WebSocket message:', e);
+                console.error('Failed to parse Socket.IO message:', e);
             }
-        };
+        });
 
-        ws.onerror = (e) => {
-            console.error('WebSocket error:', e);
-            setError('WebSocket connection error');
-        };
+        socket.on('connect_error', (err: any) => {
+            console.error('Socket.IO connection error:', err);
+            setError('Socket.IO connection error');
+        });
 
-        ws.onclose = (e) => {
-            console.log('WebSocket closed:', e.code, e.reason);
-            setSandboxReady(false);
-            setIsExecuting(false);
-        };
-
-        wsRef.current = ws;
+        socketRef.current = socket;
     }, [token, user]);
 
     // Disconnect
     const disconnect = useCallback(() => {
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
+        if (socketRef.current) {
+            socketRef.current.disconnect();
+            socketRef.current = null;
         }
         setSandboxReady(false);
     }, []);
 
-    // Run code via WebSocket
+    // Run code via Socket.IO
     const runCode = useCallback(async (code: string) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        if (!socketRef.current || !socketRef.current.connected) {
             connect();
             // Wait for connection
             await new Promise<void>((resolve) => {
                 const checkConnection = () => {
-                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    if (socketRef.current?.connected) {
                         resolve();
                     } else {
                         setTimeout(checkConnection, 100);
@@ -150,20 +160,26 @@ export function useExecution(exerciseId: number, language?: string) {
         setIsExecuting(true);
 
         // Send run message
-        wsRef.current?.send(JSON.stringify({
-            type: 'run',
+        socketRef.current?.emit('execute_code', {
             exercise_id: exerciseId,
             code,
             language: lang,
-        }));
+        });
     }, [exerciseId, lang, connect]);
+
+    // Send input to running process
+    const sendInput = useCallback((input: string) => {
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('send_input', {
+                input: input
+            });
+        }
+    }, []);
 
     // Cancel execution
     const cancelExecution = useCallback(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-                type: 'cancel',
-            }));
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('cancel_execution', {});
         }
         setIsExecuting(false);
     }, []);
@@ -191,6 +207,7 @@ export function useExecution(exerciseId: number, language?: string) {
         sandboxReady,
         gradingResult,
         runCode,
+        sendInput,
         cancelExecution,
         reset,
         connect,

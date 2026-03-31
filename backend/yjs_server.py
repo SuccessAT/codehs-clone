@@ -59,6 +59,8 @@ class YjsServer:
     def __init__(self):
         self.rooms: Dict[str, YjsRoom] = {}
         self.connections: Dict[WebSocket, YjsConnection] = {}
+        # Lock for thread-safe access to rooms and connections
+        self._lock = asyncio.Lock()
     
     def _cleanup_inactive_rooms(self) -> int:
         """Remove rooms that have been inactive beyond the timeout."""
@@ -86,28 +88,29 @@ class YjsServer:
         await websocket.accept()
         
         # Check room limits before creating new room
-        if room_id not in self.rooms and not self._can_create_room():
-            logger.warning(f"Yjs room limit reached, rejecting connection to room {room_id}")
-            await websocket.close(code=1013, reason="Server is at capacity")
-            return
-        
-        # Generate a unique client ID
-        client_id = int(hashlib.sha256(f"{room_id}{datetime.utcnow().isoformat()}".encode()).hexdigest()[:8], 16)
-        
-        connection = YjsConnection(
-            websocket=websocket,
-            room_id=room_id,
-            client_id=client_id,
-            user_id=user_id,
-        )
-        self.connections[websocket] = connection
-        
-        # Initialize room if needed
-        if room_id not in self.rooms:
-            self.rooms[room_id] = YjsRoom(id=room_id)
-        
-        # Update room activity
-        self.rooms[room_id].last_activity = datetime.utcnow()
+        async with self._lock:
+            if room_id not in self.rooms and not self._can_create_room():
+                logger.warning(f"Yjs room limit reached, rejecting connection to room {room_id}")
+                await websocket.close(code=1013, reason="Server is at capacity")
+                return
+            
+            # Generate a unique client ID
+            client_id = int(hashlib.sha256(f"{room_id}{datetime.utcnow().isoformat()}".encode()).hexdigest()[:8], 16)
+            
+            connection = YjsConnection(
+                websocket=websocket,
+                room_id=room_id,
+                client_id=client_id,
+                user_id=user_id,
+            )
+            self.connections[websocket] = connection
+            
+            # Initialize room if needed
+            if room_id not in self.rooms:
+                self.rooms[room_id] = YjsRoom(id=room_id)
+            
+            # Update room activity
+            self.rooms[room_id].last_activity = datetime.utcnow()
         
         logger.info(f"Yjs client {client_id} connected to room {room_id} (user_id: {user_id})")
         
@@ -128,12 +131,12 @@ class YjsServer:
             logger.info(f"Yjs client {client_id} disconnected from room {room_id} (user_id: {connection.user_id})")
         finally:
             # Clean up
-            self.connections.pop(websocket, None)
-            if room_id in self.rooms:
-                room = self.rooms[room_id]
-                # Note: We no longer track per-client states, so no cleanup needed
-                # Update room activity
-                room.last_activity = datetime.utcnow()
+            async with self._lock:
+                self.connections.pop(websocket, None)
+                if room_id in self.rooms:
+                    room = self.rooms[room_id]
+                    # Update room activity
+                    room.last_activity = datetime.utcnow()
     
     async def _handle_message(self, websocket: WebSocket, data: str) -> None:
         """Handle an incoming Yjs message."""

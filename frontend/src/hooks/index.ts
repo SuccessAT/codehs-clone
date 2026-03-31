@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { lessonsApi, authApi } from '@/api';
+import { lessonsApi } from '@/api';
 import type { QuizAnswer, Submission } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -106,7 +106,7 @@ export function useAuth() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const login = useCallback(async (username: string, password: string) => {
+    const login = useCallback(async (username: string, password: string): Promise<void> => {
         setIsLoading(true);
         setError(null);
         try {
@@ -133,7 +133,7 @@ export function useAuth() {
         }
     }, []);
 
-    const register = useCallback(async (username: string, email: string, password: string) => {
+    const register = useCallback(async (username: string, email: string, password: string): Promise<void> => {
         setIsLoading(true);
         setError(null);
         try {

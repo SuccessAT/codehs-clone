@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { lessonsApi } from '@/api';
 import { useAuthStore, useLessonStore } from '@/store';
 import LessonCard from '@/components/LessonCard';
-import type { Lesson, UserProgress, LessonProgress } from '@/types';
+import type { Lesson, LessonProgress } from '@/types';
 
 export default function DashboardPage() {
     const { user } = useAuthStore();
-    const { lessons, setLessons, userProgress, setUserProgress, isLoading, setLoading, setError } = useLessonStore();
+    const { lessons, setLessons, userProgress, setUserProgress, setLoading, setError } = useLessonStore();
     const [localLoading, setLocalLoading] = useState(true);
 
     useEffect(() => {
@@ -19,7 +19,7 @@ export default function DashboardPage() {
                     lessonsApi.getMyProgress(),
                 ]);
                 setLessons(lessonsData);
-                setUserProgress(progressData);
+                setUserProgress({ ...progressData, lessons: [] });
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to fetch data';
                 setError(message);
