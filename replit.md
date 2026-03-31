@@ -32,9 +32,17 @@ An educational coding platform built as a self-hosted alternative to CodeHS. Tea
 
 Uses the Replit-provided PostgreSQL database via the `DATABASE_URL` environment variable. Tables are auto-created on startup via SQLAlchemy metadata.
 
-## E2B Sandbox
+## Demo Accounts
 
-The app integrates with a self-hosted E2B WebSocket terminal for code execution. If no E2B server is available at `WS_E2B_URL` (default: `ws://localhost:8765`), the app runs in degraded mode — browsing lessons and auth still work, but code execution is unavailable.
+Demo accounts are seeded automatically on startup:
+- **teacher** / teacher123 (teacher role)
+- **student** / student123 (student role)
+
+## Code Execution
+
+`backend/local_executor.py` — subprocess-based local code executor used as the primary execution backend. Mirrors the E2BService interface so the WebSocket manager works identically with either backend.
+
+The app integrates with an optional self-hosted E2B WebSocket server at `WS_E2B_URL` (default: `ws://localhost:8765`). If unavailable, the local executor handles all code execution automatically. Python execution takes ~70ms locally.
 
 ## Deployment
 

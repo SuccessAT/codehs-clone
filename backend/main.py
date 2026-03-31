@@ -18,13 +18,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from database import engine, Base
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import engine, Base, get_db
 from e2b_service import (
     E2BConnectionError,
     init_e2b_service,
     shutdown_e2b_service,
     get_e2b_service,
 )
+from models import User, UserRole
 from routers import auth_router, lessons_router, execution_router
 from schemas import HealthCheckResponse
 
@@ -36,6 +40,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ==================== Demo Seed ====================
+async def seed_demo_accounts() -> None:
+    """Create demo teacher and student accounts if they don't exist."""
+    from dependencies import get_password_hash
+    async with AsyncSession(engine) as session:
+        for username, email, password, role in [
+            ("teacher", "teacher@demo.com", "teacher123", UserRole.TEACHER),
+            ("student", "student@demo.com", "student123", UserRole.STUDENT),
+        ]:
+            result = await session.execute(select(User).where(User.username == username))
+            if result.scalar_one_or_none() is None:
+                user = User(
+                    username=username,
+                    email=email,
+                    hashed_password=get_password_hash(password),
+                    role=role,
+                    is_active=True,
+                    is_superuser=False,
+                )
+                session.add(user)
+                logger.info(f"Created demo account: {username}")
+        await session.commit()
+
+
 # ==================== Application Events ====================
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -45,6 +73,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
+    # Startup: Seed demo accounts
+    await seed_demo_accounts()
+
     # Startup: Initialize E2B service
     logger.info("Initializing E2B service...")
     try:

@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 
 from e2b_service import E2BService, ExecutionResult, get_e2b_service
+from local_executor import get_local_executor
 from models import Exercise
 
 # Configure logging
@@ -241,45 +242,40 @@ class WebSocketManager:
         connection_id = str(uuid.uuid4())
         self._connections[connection_id] = websocket
         
-        # Create or get sandbox
+        # Create or get sandbox — use E2B if connected, otherwise fall back to local executor
         e2b = get_e2b_service()
-        
-        if e2b.is_connected:
-            try:
-                # Check for existing sandbox
-                if user_id in self._user_sandboxes:
-                    sandbox_id = self._user_sandboxes[user_id]
-                    sandbox = await e2b.get_sandbox(sandbox_id)
-                    if sandbox and not sandbox.is_expired(30):
-                        await self._send_message(
-                            websocket,
-                            WSMessage(WSMessageType.SANDBOX_READY, {"sandbox_id": sandbox_id})
-                        )
-                        return connection_id
-                
-                # Create new sandbox
-                sandbox_id = await e2b.create_sandbox(user_id=user_id)
-                self._user_sandboxes[user_id] = sandbox_id
-                
-                await self._send_message(
-                    websocket,
-                    WSMessage(WSMessageType.SANDBOX_READY, {"sandbox_id": sandbox_id})
-                )
-                
-                logger.info(f"Created sandbox {sandbox_id} for user {user_id}")
-                
-            except Exception as e:
-                logger.error(f"Failed to create sandbox: {e}")
-                await self._send_message(
-                    websocket,
-                    WSMessage(WSMessageType.ERROR, {"message": f"Failed to create sandbox: {str(e)}"})
-                )
-        else:
+        executor = e2b if e2b.is_connected else get_local_executor()
+
+        try:
+            # Check for existing sandbox
+            if user_id in self._user_sandboxes:
+                sandbox_id = self._user_sandboxes[user_id]
+                sandbox = await executor.get_sandbox(sandbox_id)
+                if sandbox and not sandbox.is_expired(30):
+                    await self._send_message(
+                        websocket,
+                        WSMessage(WSMessageType.SANDBOX_READY, {"sandbox_id": sandbox_id})
+                    )
+                    return connection_id
+
+            # Create new sandbox
+            sandbox_id = await executor.create_sandbox(user_id=user_id)
+            self._user_sandboxes[user_id] = sandbox_id
+
             await self._send_message(
                 websocket,
-                WSMessage(WSMessageType.ERROR, {"message": "E2B service unavailable"})
+                WSMessage(WSMessageType.SANDBOX_READY, {"sandbox_id": sandbox_id})
             )
-        
+
+            logger.info(f"Created sandbox {sandbox_id} for user {user_id} (executor={executor.__class__.__name__})")
+
+        except Exception as e:
+            logger.error(f"Failed to create sandbox: {e}")
+            await self._send_message(
+                websocket,
+                WSMessage(WSMessageType.ERROR, {"message": f"Failed to create sandbox: {str(e)}"})
+            )
+
         return connection_id
     
     async def disconnect(self, connection_id: str) -> None:
@@ -370,19 +366,14 @@ class WebSocketManager:
         )
         self._executions[connection_id] = execution
         
-        # Get sandbox
+        # Get sandbox — use E2B if connected, otherwise local executor
         e2b = get_e2b_service()
-        if not e2b.is_connected:
-            await self._send_message(
-                websocket,
-                WSMessage(WSMessageType.ERROR, {"message": "E2B service unavailable"})
-            )
-            return
-        
+        executor = e2b if e2b.is_connected else get_local_executor()
+
         sandbox_id = self._user_sandboxes.get(user_id)
         if not sandbox_id:
             try:
-                sandbox_id = await e2b.create_sandbox(user_id=user_id, language=language)
+                sandbox_id = await executor.create_sandbox(user_id=user_id, language=language)
                 self._user_sandboxes[user_id] = sandbox_id
             except Exception as e:
                 await self._send_message(
@@ -390,10 +381,10 @@ class WebSocketManager:
                     WSMessage(WSMessageType.ERROR, {"message": f"Failed to create sandbox: {str(e)}"})
                 )
                 return
-        
+
         try:
             # Execute code with streaming
-            result = await e2b.execute_code(
+            result = await executor.execute_code(
                 sandbox_id=sandbox_id,
                 code=code,
                 language=language,

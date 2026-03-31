@@ -92,7 +92,7 @@ class Lesson(Base):
         "Exercise", back_populates="lesson", cascade="all, delete-orphan", order_by="Exercise.order"
     )
     course_modules: Mapped[list["CourseModule"]] = relationship(
-        "CourseModule", back_populates="lesson", cascade="all, delete-orphan"
+        "CourseModule", cascade="all, delete-orphan"
     )
     
     def __repr__(self) -> str:
@@ -245,5 +245,5 @@ class CourseModule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    course: Mapped["Course"] = relationship("Course", back_populates="modules")
-    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="course_modules")
+    course: Mapped["Course"] = relationship("Course", overlaps="modules")
+    lesson: Mapped["Lesson"] = relationship("Lesson", overlaps="course_modules")

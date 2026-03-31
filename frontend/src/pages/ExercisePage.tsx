@@ -36,10 +36,12 @@ export default function ExercisePage() {
         stdout: wsStdout,
         stderr: wsStderr,
         isExecuting: isWsExecuting,
+        waitingForInput,
         error: wsError,
         gradingResult,
         runCode,
         cancelExecution,
+        sendInput,
         reset: resetExecution
     } = useExecution(
         exerciseId ? parseInt(exerciseId) : 0,
@@ -119,9 +121,9 @@ export default function ExercisePage() {
     // Handle code run via WebSocket (instant execution with streaming)
     const handleRunCode = useCallback(async () => {
         if (!files[activeFileIndex]?.content.trim()) return;
-        // Use WebSocket for instant execution with streaming output
+        setActiveTab('output');
         await runCode(files[activeFileIndex].content);
-    }, [files, activeFileIndex, runCode]);
+    }, [files, activeFileIndex, runCode, setActiveTab]);
 
     // Handle code submit (save to DB + grade + record in database)
     const handleSubmitCode = useCallback(async () => {
@@ -345,12 +347,9 @@ export default function ExercisePage() {
                                         stderr={runOutput.stderr}
                                         isExecuting={isWsExecuting || isSubmitting}
                                         error={wsError}
-                                        waitingForInput={false}
+                                        waitingForInput={waitingForInput}
                                         onClear={resetExecution}
-                                        onInput={(input) => {
-                                            // TODO: Send input via WebSocket
-                                            console.log('Input:', input);
-                                        }}
+                                        onInput={sendInput}
                                         onCancel={cancelExecution}
                                     />
                                 </div>

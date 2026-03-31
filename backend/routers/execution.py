@@ -87,7 +87,7 @@ async def create_sandbox_session(
     current_user: User = Depends(get_current_active_user),
 ) -> SandboxStatusResponse:
     """Create a new sandbox session."""
-    await check_rate_limit(current_user)
+    await check_rate_limit(None, current_user)
     
     e2b = get_e2b_or_raise()
     
@@ -182,7 +182,7 @@ async def execute_in_sandbox(
     current_user: User = Depends(get_current_active_user),
 ) -> ExecutionResultSchema:
     """Execute code in a sandbox."""
-    await check_rate_limit(current_user)
+    await check_rate_limit(None, current_user)
     
     e2b = get_e2b_or_raise()
     
@@ -382,7 +382,7 @@ async def quick_execute(
     current_user: User = Depends(get_current_active_user),
 ) -> ExecutionResultSchema:
     """Execute code in a temporary sandbox."""
-    await check_rate_limit(current_user)
+    await check_rate_limit(None, current_user)
     
     e2b = get_e2b_or_raise()
     

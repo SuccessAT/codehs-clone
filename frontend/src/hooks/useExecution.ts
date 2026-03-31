@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 interface ExecutionMessage {
     type: string;
@@ -38,6 +38,7 @@ export function useExecution(exerciseId: number, language?: string) {
     const [stdout, setStdout] = useState('');
     const [stderr, setStderr] = useState('');
     const [isExecuting, setIsExecuting] = useState(false);
+    const [waitingForInput, setWaitingForInput] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [sandboxReady, setSandboxReady] = useState(false);
     const [gradingResult, setGradingResult] = useState<GradingResult | null>(null);
@@ -60,7 +61,11 @@ export function useExecution(exerciseId: number, language?: string) {
             wsRef.current.close();
         }
 
-        const wsUrl = `${API_BASE_URL.replace('http', 'ws')}/api/v1/ws/execute/${user.id}?token=${token}`;
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsBase = API_BASE_URL
+            ? API_BASE_URL.replace(/^https?/, wsProto.replace(':', ''))
+            : `${wsProto}//${window.location.host}`;
+        const wsUrl = `${wsBase}/api/v1/ws/execute/${user.id}?token=${token}`;
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
@@ -85,9 +90,12 @@ export function useExecution(exerciseId: number, language?: string) {
                     case 'error':
                         setError((message.data as { message: string }).message);
                         break;
+                    case 'waiting_for_input':
+                        setWaitingForInput(true);
+                        break;
                     case 'complete':
                         setIsExecuting(false);
-                        // Keep the output for reference
+                        setWaitingForInput(false);
                         break;
                     case 'grading_result':
                         const grading = message.data as GradingResult;
@@ -166,6 +174,18 @@ export function useExecution(exerciseId: number, language?: string) {
             }));
         }
         setIsExecuting(false);
+        setWaitingForInput(false);
+    }, []);
+
+    // Send input to running program
+    const sendInput = useCallback((input: string) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'input',
+                data: input,
+            }));
+            setWaitingForInput(false);
+        }
     }, []);
 
     // Reset output
@@ -174,6 +194,7 @@ export function useExecution(exerciseId: number, language?: string) {
         setStderr('');
         setError(null);
         setGradingResult(null);
+        setWaitingForInput(false);
     }, []);
 
     // Cleanup on unmount
@@ -187,11 +208,13 @@ export function useExecution(exerciseId: number, language?: string) {
         stdout,
         stderr,
         isExecuting,
+        waitingForInput,
         error,
         sandboxReady,
         gradingResult,
         runCode,
         cancelExecution,
+        sendInput,
         reset,
         connect,
         disconnect,
