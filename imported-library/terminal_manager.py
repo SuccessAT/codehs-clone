@@ -1,6 +1,7 @@
 from typing import Dict, Callable, Optional, Any
 import uuid
 import asyncio
+import os
 from working_terminal import Terminal
 from e2b import AsyncSandbox
 
@@ -12,12 +13,12 @@ class TerminalManager:
         self.sandbox = None
         
     async def initialize_sandbox(self, template: str = "base", 
-                                api_key: str = "e2b_25759fe29f1d0ab6ecb00f615f0dec122c70b6fa"):
+                                api_key: str = None):
         """Initialize the shared sandbox instance"""
         if not self.sandbox:
             self.sandbox = await AsyncSandbox.create(
                 template=template,
-                api_key=api_key,
+                api_key=api_key or os.environ.get("E2B_API_KEY"),
                 timeout=1800
 
             )

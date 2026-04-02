@@ -1,6 +1,7 @@
 import asyncio
 import signal
 import sys
+import os
 import re
 from typing import Callable, Optional, Dict, Any
 from e2b import AsyncSandbox
@@ -15,7 +16,7 @@ def strip_ansi_codes(text):
     return ANSI_ESCAPE_PATTERN.sub('', text)
 
 class Terminal:
-    def __init__(self, template: str = "base", api_key: str = "e2b_25759fe29f1d0ab6ecb00f615f0dec122c70b6fa", existing_sandbox=None):
+    def __init__(self, template: str = "base", api_key: str = None, existing_sandbox=None):
         self.sandbox = existing_sandbox
         self.pty_pid = None
         self.command_handle = None
@@ -27,7 +28,7 @@ class Terminal:
         self.current_command = None
         self.last_prompt = ""
         self.template = template
-        self.api_key = api_key
+        self.api_key = api_key or os.environ.get("E2B_API_KEY")
         self.owns_sandbox = existing_sandbox is None  # Track if we created the sandbox
 
     async def init(self, on_data: Optional[Callable[[str], Any]] = None):
