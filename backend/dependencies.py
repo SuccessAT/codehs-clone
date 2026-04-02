@@ -146,9 +146,47 @@ rate_limiter = RateLimiter(
     requests_per_hour=int(os.getenv("RATE_LIMIT_PER_HOUR", "1000")),
 )
 
+# In-memory token revocation list: token -> expiry epoch seconds
+_revoked_tokens: dict[str, float] = {}
+
+
+def _cleanup_revoked_tokens() -> None:
+    """Remove expired tokens from the revocation list."""
+    now = time.time()
+    expired = [token for token, exp_ts in _revoked_tokens.items() if exp_ts <= now]
+    for token in expired:
+        _revoked_tokens.pop(token, None)
+
+
+def revoke_token(token: str) -> None:
+    """Revoke a JWT until its expiry time."""
+    _cleanup_revoked_tokens()
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
+        exp = payload.get("exp")
+        if isinstance(exp, (int, float)):
+            _revoked_tokens[token] = float(exp)
+        else:
+            # Fallback: if token has no exp (unexpected), revoke for 24h.
+            _revoked_tokens[token] = time.time() + 86400
+    except InvalidTokenError:
+        # Invalid tokens are already unusable, but keep a short-lived block entry.
+        _revoked_tokens[token] = time.time() + 300
+
+
+def is_token_revoked(token: str) -> bool:
+    """Check if a JWT has been revoked."""
+    _cleanup_revoked_tokens()
+    return token in _revoked_tokens
+
 
 async def check_rate_limit(
-    request: Request,
+    request: Optional[Request],
     user: Optional[User] = None,
 ) -> None:
     """
@@ -157,16 +195,23 @@ async def check_rate_limit(
     Uses IP address for unauthenticated requests,
     user ID for authenticated requests.
     """
+    # Skip rate limiting if request is None (shouldn't happen but be safe)
+    if request is None:
+        return
+        
     # Use user ID if authenticated, otherwise IP
     if user:
         key = f"user:{user.id}"
     else:
         # Get client IP (handle proxies)
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            ip = request.client.host if request.client else "unknown"
+        try:
+            forwarded = request.headers.get("X-Forwarded-For") if request.headers else None
+            if forwarded:
+                ip = forwarded.split(",")[0].strip()
+            else:
+                ip = request.client.host if request.client else "unknown"
+        except Exception:
+            ip = "unknown"
         key = f"ip:{ip}"
     
     allowed, error_message = await rate_limiter.is_allowed(key)
@@ -219,6 +264,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def decode_token(token: str) -> Optional[dict]:
     """Decode and validate a JWT token."""
+    if is_token_revoked(token):
+        return None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload

@@ -43,12 +43,11 @@ export default function Editor({
     onFileRemove,
     onLanguageChange,
     readOnly = false,
-    height = '100%',
     exerciseId,
     starterCode,
 }: EditorProps) {
     const editorRef = useRef<any>(null);
-    const { darkMode, editorFontSize, editorTheme } = useUIStore();
+    const { editorFontSize, editorTheme } = useUIStore();
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
     const [showNewFileDialog, setShowNewFileDialog] = useState(false);

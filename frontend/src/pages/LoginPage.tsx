@@ -1,11 +1,17 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks';
+import { useAuthStore } from '@/store';
 
 export default function LoginPage() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const { login, isLoading, error } = useAuth();
+    const { isAuthenticated } = useAuthStore();
+
+    if (isAuthenticated) {
+        return <Navigate to="/dashboard" replace />;
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -13,17 +19,17 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8">
+        <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-md w-full space-y-8 bg-card p-10 rounded-2xl border shadow-2xl backdrop-blur-xl">
                 {/* Header */}
                 <div className="text-center">
-                    <div className="mx-auto w-16 h-16 bg-primary-500 rounded-xl flex items-center justify-center mb-4">
-                        <span className="text-white font-bold text-2xl">C</span>
+                    <div className="mx-auto w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
+                        <span className="text-primary-foreground font-black text-4xl">C</span>
                     </div>
-                    <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-                        Welcome back
+                    <h2 className="text-4xl font-black text-foreground tracking-tight">
+                        CODEHS CLONE
                     </h2>
-                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                    <p className="mt-2 text-sm text-muted-foreground">
                         Sign in to your account to continue learning
                     </p>
                 </div>
@@ -31,14 +37,14 @@ export default function LoginPage() {
                 {/* Form */}
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
                     {error && (
-                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+                        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-lg text-sm animate-in fade-in slide-in-from-top-1">
                             {error}
                         </div>
                     )}
 
                     <div className="space-y-4">
                         <div>
-                            <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            <label htmlFor="username" className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
                                 Username
                             </label>
                             <input
@@ -49,13 +55,13 @@ export default function LoginPage() {
                                 required
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                className="input"
+                                className="input h-12 bg-background/50"
                                 placeholder="Enter your username"
                             />
                         </div>
 
                         <div>
-                            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            <label htmlFor="password" className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
                                 Password
                             </label>
                             <input
@@ -66,7 +72,7 @@ export default function LoginPage() {
                                 required
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="input"
+                                className="input h-12 bg-background/50"
                                 placeholder="Enter your password"
                             />
                         </div>
@@ -75,39 +81,45 @@ export default function LoginPage() {
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full btn-primary py-3 flex items-center justify-center gap-2"
+                        className="w-full btn-primary h-12 text-base font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                     >
                         {isLoading ? (
-                            <>
-                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                Signing in...
-                            </>
+                            <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                                <span>AUTHENTICATING...</span>
+                            </div>
                         ) : (
-                            'Sign in'
+                            'SIGN IN'
                         )}
                     </button>
 
-                    <div className="text-center text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">
-                            Don't have an account?{' '}
+                    <div className="text-center text-sm pt-4 border-t">
+                        <span className="text-muted-foreground">
+                            New here?{' '}
                         </span>
                         <Link
                             to="/register"
-                            className="font-medium text-primary-600 dark:text-primary-400 hover:text-primary-500"
+                            className="font-bold text-primary hover:underline"
                         >
-                            Sign up
+                            CREATE AN ACCOUNT
                         </Link>
                     </div>
                 </form>
 
                 {/* Demo credentials */}
-                <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">
-                        Demo credentials (if seeded):
+                <div className="mt-6 p-4 bg-muted/50 rounded-xl border border-border">
+                    <p className="text-[10px] font-bold text-muted-foreground text-center uppercase tracking-widest mb-3">
+                        Quick Access (Demo)
                     </p>
-                    <div className="text-xs text-gray-600 dark:text-gray-300 text-center space-y-1">
-                        <p><strong>Teacher:</strong> teacher / teacher123</p>
-                        <p><strong>Student:</strong> student / student123</p>
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                        <div className="text-center">
+                            <p className="font-bold text-foreground">TEACHER</p>
+                            <p className="text-muted-foreground">teacher / teacher123</p>
+                        </div>
+                        <div className="text-center border-l">
+                            <p className="font-bold text-foreground">STUDENT</p>
+                            <p className="text-muted-foreground">student / student123</p>
+                        </div>
                     </div>
                 </div>
             </div>

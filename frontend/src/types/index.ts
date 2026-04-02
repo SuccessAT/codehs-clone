@@ -3,6 +3,7 @@ export interface User {
     id: number;
     username: string;
     email: string;
+    role: 'student' | 'teacher';
 }
 
 export interface AuthState {
@@ -13,13 +14,38 @@ export interface AuthState {
     logout: () => void;
 }
 
-// Lesson types
-export interface Lesson {
+// Course Hierarchy (matching frontend2/ structure)
+export interface Course {
     id: number;
     title: string;
     description: string;
+    teacher_id: number;
+    created_at: string;
+    modules?: Module[];
+}
+
+export interface Module {
+    id: number;
+    course_id: number;
+    name: string;
+    description: string;
     order: number;
-    video_url?: string;
+    lessons?: Lesson[];
+}
+
+export type LessonType = 'codelab' | 'text' | 'video' | 'picture' | 'assignment';
+
+export interface Lesson {
+    id: number;
+    module_id: number;
+    title: string;
+    description: string;
+    lesson_type: LessonType;
+    content?: string; // Markdown or JSON
+    media_url?: string; // Video or picture
+    starter_code?: string; // For codelab
+    language?: string; // For codelab
+    order: number;
     created_at: string;
 }
 

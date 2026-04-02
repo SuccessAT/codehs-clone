@@ -38,83 +38,136 @@ export default function DashboardPage() {
         return lessonProg?.progress || 0;
     };
 
-    const getExerciseCount = (lessonId: number): number => {
-        if (!userProgress) return 0;
-        const lessonProg = userProgress.lessons.find((l: LessonProgress) => l.lesson_id === lessonId);
-        return lessonProg?.total_exercises || 0;
+    const handleDeleteCourse = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this course?')) return;
+        try {
+            await coursesApi.delete(id);
+            fetchCourses();
+        } catch (err) {
+            console.error('Failed to delete course', err);
+        }
     };
 
     return (
-        <div className="max-w-6xl mx-auto">
-            {/* Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                    Welcome back, {user?.username}!
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400">
-                    Continue your coding journey
-                </p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div className="flex justify-between items-center mb-12">
+                <div>
+                    <h1 className="text-4xl font-black text-foreground tracking-tight uppercase">
+                        {user?.role === 'teacher' ? 'Course Management' : 'My Courses'}
+                    </h1>
+                    <p className="text-muted-foreground mt-2">
+                        {user?.role === 'teacher' ? 'Create and manage your educational content' : 'Select a course to start learning'}
+                    </p>
+                </div>
+                <div className="flex gap-4">
+                    <button
+                        onClick={() => setDarkMode(!darkMode)}
+                        className="p-3 rounded-xl bg-secondary hover:bg-secondary/80 transition-colors"
+                    >
+                        {darkMode ? '☀️' : '🌙'}
+                    </button>
+                    {user?.role === 'teacher' && (
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="btn-primary px-6 h-12 font-bold"
+                        >
+                            ADD COURSE
+                        </button>
+                    )}
+                </div>
             </div>
 
-            {/* Stats */}
-            {userProgress && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                    <div className="card p-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Progress</p>
-                        <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
-                            {userProgress.progress_percentage}%
-                        </p>
-                    </div>
-                    <div className="card p-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Completed</p>
-                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                            {userProgress.completed_exercises}/{userProgress.total_exercises}
-                        </p>
-                    </div>
-                    <div className="card p-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Total Points</p>
-                        <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                            {userProgress.total_points}
-                        </p>
-                    </div>
-                    <div className="card p-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Submissions</p>
-                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                            {userProgress.total_submissions}
-                        </p>
-                    </div>
+            {isLoading ? (
+                <div className="flex justify-center py-20">
+                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : courses.length === 0 ? (
+                <div className="card p-20 text-center border-dashed">
+                    <p className="text-muted-foreground font-medium">No courses available yet.</p>
+                    {user?.role === 'teacher' && (
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="mt-4 text-primary font-bold hover:underline"
+                        >
+                            Create your first course
+                        </button>
+                    )}
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {courses.map((course) => (
+                        <div key={course.id} className="card group hover:scale-[1.02] transition-all duration-300">
+                            <div className="p-8">
+                                <h3 className="text-2xl font-bold mb-3">{course.title}</h3>
+                                <p className="text-muted-foreground text-sm line-clamp-3 mb-6">
+                                    {course.description}
+                                </p>
+                                <div className="flex items-center justify-between mt-auto">
+                                    <Link
+                                        to={user?.role === 'teacher' ? `/manage/course/${course.id}` : `/course/${course.id}`}
+                                        className="btn-primary px-4 py-2 text-xs font-bold"
+                                    >
+                                        {user?.role === 'teacher' ? 'MANAGE' : 'VIEW MODULES'}
+                                    </Link>
+                                    {user?.role === 'teacher' && (
+                                        <button
+                                            onClick={() => handleDeleteCourse(course.id)}
+                                            className="text-destructive font-bold text-xs hover:underline"
+                                        >
+                                            DELETE
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
 
-            {/* Lessons */}
-            <div>
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                    Lessons
-                </h2>
-
-                {localLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+            {/* Create Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="card w-full max-w-lg p-10 shadow-2xl">
+                        <h2 className="text-2xl font-black mb-6 uppercase tracking-tight">Create Course</h2>
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Title</label>
+                                <input
+                                    type="text"
+                                    className="input h-12"
+                                    placeholder="Enter course title"
+                                    value={newCourse.title}
+                                    onChange={(e) => setNewCourse({ ...newCourse, title: e.target.value })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Description</label>
+                                <textarea
+                                    className="input h-32 py-3 resize-none"
+                                    placeholder="Enter course description"
+                                    value={newCourse.description}
+                                    onChange={(e) => setNewCourse({ ...newCourse, description: e.target.value })}
+                                />
+                            </div>
+                            <div className="flex gap-4 pt-4">
+                                <button
+                                    onClick={() => setShowCreateModal(false)}
+                                    className="flex-1 h-12 rounded-xl border font-bold hover:bg-muted transition-colors"
+                                >
+                                    CANCEL
+                                </button>
+                                <button
+                                    onClick={handleCreateCourse}
+                                    disabled={!newCourse.title}
+                                    className="flex-1 btn-primary h-12 font-bold"
+                                >
+                                    CREATE
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                ) : lessons.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-gray-500 dark:text-gray-400">
-                            No lessons available yet.
-                        </p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {lessons.map((lesson: Lesson) => (
-                            <LessonCard
-                                key={lesson.id}
-                                lesson={lesson}
-                                progress={getLessonProgress(lesson.id)}
-                                exerciseCount={getExerciseCount(lesson.id)}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }

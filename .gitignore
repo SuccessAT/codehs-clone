@@ -74,6 +74,7 @@ coverage/
 .pytest_cache/
 .mypy_cache/
 .hypothesis/
+.local/
 
 # OS specific
 Thumbs.db

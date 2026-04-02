@@ -65,7 +65,7 @@ export default function RunButton({
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                     isRunning
                         ? 'bg-destructive text-destructive-foreground hover:opacity-90'
-                        : 'bg-primary text-primary-foreground hover:opacity-90 animate-pulse-run',
+                        : 'bg-primary text-primary-foreground hover:opacity-90',
                     (isDisabled || (!isRunning && !onRun)) && 'opacity-50 cursor-not-allowed'
                 )}
             >

@@ -16,7 +16,7 @@ export default function HistorySidebar({
     onSelectSubmission,
 }: HistorySidebarProps) {
     const [submissions, setSubmissions] = useState<Submission[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading] = useState(false);
 
     // TODO: Fetch submissions from API when exerciseId changes
     useEffect(() => {
