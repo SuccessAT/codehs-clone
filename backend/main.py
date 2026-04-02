@@ -76,15 +76,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup: Seed demo accounts
     await seed_demo_accounts()
 
-    # Startup: Initialize E2B service
-    logger.info("Initializing E2B service...")
+    # Startup: Initialize fallback executor (real e2b sandbox runs via Socket.IO server on port 8008)
+    logger.info("Initializing local fallback executor...")
     try:
         e2b_service = await init_e2b_service()
-        logger.info(f"E2B service connected: {e2b_service.is_connected}")
-    except E2BConnectionError as e:
-        logger.warning(f"E2B service connection failed: {e}. Running in degraded mode.")
+        logger.info(f"Legacy e2b bridge connected: {e2b_service.is_connected}")
+    except E2BConnectionError:
+        logger.info("Legacy e2b bridge not available — using local executor fallback (expected).")
     except Exception as e:
-        logger.warning(f"E2B service initialization error: {e}. Running in degraded mode.")
+        logger.info(f"Local fallback executor ready. (e2b bridge skipped: {e})")
     
     logger.info("Application startup complete")
     

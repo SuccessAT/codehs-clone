@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # E2B Sandbox
-    WS_E2B_URL: str = "ws://localhost:8765"
+    # E2B Sandbox – Socket.IO execution server
+    WS_E2B_URL: str = "ws://localhost:8008"
     
     class Config:
         env_file = ".env"
