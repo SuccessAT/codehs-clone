@@ -27,7 +27,7 @@ class Terminal:
         self.current_command = None
         self.last_prompt = ""
         self.template = template
-        self.api_key = api_key
+        self.api_key = api_key or os.environ.get("E2B_API_KEY")
         self.owns_sandbox = existing_sandbox is None  # Track if we created the sandbox
 
     async def init(self, on_data: Optional[Callable[[str], Any]] = None):

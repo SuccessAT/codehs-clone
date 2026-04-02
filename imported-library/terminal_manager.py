@@ -5,7 +5,7 @@ import os
 from working_terminal import Terminal
 from e2b import AsyncSandbox
 
-E2B_API_KEY = os.getenv("E2B_API_KEY", "e2b_25759fe29f1d0ab6ecb00f615f0dec122c70b6fa")
+E2B_API_KEY = os.getenv("E2B_API_KEY")
 
 
 class TerminalManager:

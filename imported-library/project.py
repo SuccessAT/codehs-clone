@@ -53,7 +53,7 @@ class Project:
         self.file_manager = None
         self.terminal_manager = None
         self.sandbox = None
-        self.api_key = api_key or os.environ.get("E2B_API_KEY", "e2b_25759fe29f1d0ab6ecb00f615f0dec122c70b6fa")
+        self.api_key = api_key or os.environ.get("E2B_API_KEY")
         self.pause_timeout = None
         self.status = "initializing"
         self.created_at = time.time()
