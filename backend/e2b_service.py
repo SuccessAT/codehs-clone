@@ -127,6 +127,11 @@ class E2BService:
         """Check if E2B service is available (has API key)."""
         return bool(self.api_key)
 
+    @property
+    def is_connected(self) -> bool:
+        """Check if E2B service is connected (has API key)."""
+        return bool(self.api_key)
+
     async def create_sandbox(self, user_id: int, language: str = "python") -> str:
         """
         Create a new sandbox for a user using the official E2B SDK.
