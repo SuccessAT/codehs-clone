@@ -1,41 +1,45 @@
 import { useEffect, useState } from 'react';
-import { lessonsApi } from '@/api';
-import { useAuthStore, useLessonStore } from '@/store';
-import LessonCard from '@/components/LessonCard';
-import type { Lesson, LessonProgress } from '@/types';
+import { Link } from 'react-router-dom';
+import { coursesApi } from '@/api';
+import { useAuthStore, useUIStore } from '@/store';
+import type { Course } from '@/types';
 
 export default function DashboardPage() {
     const { user } = useAuthStore();
-    const { lessons, setLessons, userProgress, setUserProgress, setLoading, setError } = useLessonStore();
-    const [localLoading, setLocalLoading] = useState(true);
+    const { darkMode, setDarkMode } = useUIStore();
+    const [courses, setCourses] = useState<Course[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newCourse, setNewCourse] = useState({ title: '', description: '' });
+
+    const fetchCourses = async () => {
+        setIsLoading(true);
+        try {
+            const data = user?.role === 'teacher'
+                ? await coursesApi.list()
+                : await coursesApi.listPublic();
+            setCourses(data);
+        } catch (err) {
+            console.error('Failed to fetch courses', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            setLocalLoading(true);
-            try {
-                const [lessonsData, progressData] = await Promise.all([
-                    lessonsApi.list(),
-                    lessonsApi.getMyProgress(),
-                ]);
-                setLessons(lessonsData);
-                setUserProgress({ ...progressData, lessons: [] });
-            } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to fetch data';
-                setError(message);
-            } finally {
-                setLoading(false);
-                setLocalLoading(false);
-            }
-        };
+        fetchCourses();
+    }, [user]);
 
-        fetchData();
-    }, [setLessons, setUserProgress, setLoading, setError]);
-
-    const getLessonProgress = (lessonId: number): number => {
-        if (!userProgress) return 0;
-        const lessonProg = userProgress.lessons.find((l: LessonProgress) => l.lesson_id === lessonId);
-        return lessonProg?.progress || 0;
+    const handleCreateCourse = async () => {
+        if (!newCourse.title) return;
+        try {
+            await coursesApi.create(newCourse);
+            setShowCreateModal(false);
+            setNewCourse({ title: '', description: '' });
+            fetchCourses();
+        } catch (err) {
+            console.error('Failed to create course', err);
+        }
     };
 
     const handleDeleteCourse = async (id: number) => {
@@ -124,7 +128,6 @@ export default function DashboardPage() {
                 </div>
             )}
 
-            {/* Create Modal */}
             {showCreateModal && (
                 <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="card w-full max-w-lg p-10 shadow-2xl">
