@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { modulesApi } from '@/api';
+import { coursesApi } from '@/api';
 import type { Course, Module } from '@/types';
 
 export default function StudentCourseView() {
@@ -20,7 +20,7 @@ export default function StudentCourseView() {
         setIsLoading(true);
         try {
             // Use the new endpoint that includes modules with lessons
-            const c = await modulesApi.getWithLessons(Number(courseId));
+            const c = await coursesApi.getPublic(Number(courseId));
             setCourse(c);
             // Extract modules from the course response
             setModules((c as any).modules || []);

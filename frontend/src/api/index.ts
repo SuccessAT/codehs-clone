@@ -36,7 +36,7 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 // Courses API - public and private
 export const coursesApi = {
     // List all courses (teachers see all their courses)
-    list: () => fetchApi<Course[]>('/api/v1/courses/'),
+    list: () => fetchApi<Course[]>('/api/v1/courses'),
 
     // List published courses (students see public courses)
     listPublic: () => fetchApi<Course[]>('/api/v1/courses/public/'),
@@ -48,7 +48,7 @@ export const coursesApi = {
     getPublic: (id: number) => fetchApi<Course>(`/api/v1/courses/public/${id}`),
 
     create: (data: { title: string; description?: string }) =>
-        fetchApi<Course>('/api/v1/courses/', {
+        fetchApi<Course>('/api/v1/courses', {
             method: 'POST',
             body: JSON.stringify(data)
         }),
@@ -134,9 +134,9 @@ export const lessonsApi = {
         total_points: number;
         lessons: LessonProgress[]
     }>('/api/v1/users/me/progress'),
-    listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions/'),
+    listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions'),
     submitCode: (exerciseId: number, code: string) =>
-        fetchApi<Submission>('/api/v1/submissions/', {
+        fetchApi<Submission>('/api/v1/submissions', {
             method: 'POST',
             body: JSON.stringify({ exercise_id: exerciseId, code }),
         }),

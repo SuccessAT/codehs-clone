@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { lessonsApi } from '@/api';
+import { exerciseApi, lessonsApi } from '@/api';
 import { useUIStore } from '@/store';
+import { useAuth } from '@/hooks';
 import Editor from '@/components/Editor';
 import Console from '@/components/Console';
 import RunButton from '@/components/RunButton';
@@ -18,16 +19,17 @@ export default function ExercisePage() {
     const [error, setError] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [runOutput, setRunOutput] = useState({ stdout: '', stderr: '' });
+    const [exercise, setExercise] = useState<ExerciseDetail | null>(null);
+    const [files, setFiles] = useState<EditorFile[]>([]);
+    const [activeFileIndex, setActiveFileIndex] = useState(0);
     const { logout, isLoading: isAuthLoading } = useAuth();
 
     const { activeTab, setActiveTab } = useUIStore();
 
-    // Submission hook - for "Submit" button (save + grade + record in DB)
     const { isSubmitting, submitCode, submitQuiz, result: submissionResult, reset: resetSubmission } = useSubmission(
         exerciseId ? parseInt(exerciseId) : 0
     );
 
-    // Execution hook - for "Run" button (Socket.IO streaming)
     const {
         stdout: wsStdout,
         stderr: wsStderr,
@@ -42,7 +44,6 @@ export default function ExercisePage() {
         exercise?.language || 'python'
     );
 
-    // Fetch exercise
     useEffect(() => {
         const fetchExercise = async () => {
             if (!exerciseId) return;
@@ -51,10 +52,9 @@ export default function ExercisePage() {
             setError(null);
 
             try {
-                const data = await lessonsApi.getExercise(parseInt(exerciseId));
+                const data = await exerciseApi.get(parseInt(exerciseId));
                 setExercise(data);
 
-                // Set up files with starter code
                 const lang = data.language || 'python';
                 const fileName = getFileName(lang);
                 setFiles([{
@@ -73,13 +73,11 @@ export default function ExercisePage() {
         fetchExercise();
     }, [exerciseId]);
 
-    // Reset state when exercise changes
     useEffect(() => {
         resetExecution();
         resetSubmission();
     }, [exerciseId, resetExecution, resetSubmission]);
 
-    // Update runOutput when WebSocket output changes
     useEffect(() => {
         setRunOutput({ stdout: wsStdout, stderr: wsStderr });
     }, [wsStdout, wsStderr]);
@@ -112,31 +110,24 @@ export default function ExercisePage() {
         return defaults[language] || '# Write your code here';
     };
 
-    // Handle code run via Socket.IO (instant execution with streaming)
     const handleRunCode = useCallback(async () => {
         if (!files[activeFileIndex]?.content.trim()) return;
-        // Use Socket.IO for instant execution with streaming output
         await runCode(files[activeFileIndex].content);
     }, [files, activeFileIndex, runCode]);
 
-    // Handle code submit (save to DB + grade + record in database)
     const handleSubmitCode = useCallback(async () => {
         if (!files[activeFileIndex]?.content.trim()) return;
-        // Use REST API for submission with autograding
         await submitCode(files[activeFileIndex].content);
     }, [files, activeFileIndex, submitCode]);
 
-    // Handle quiz submission
     const handleQuizSubmit = useCallback(async (answers: QuizAnswer[]) => {
         await submitQuiz(answers);
     }, [submitQuiz]);
 
-    // Handle file change
     const handleFileChange = (index: number, content: string) => {
         setFiles(prev => prev.map((f, i) => i === index ? { ...f, content } : f));
     };
 
-    // Handle language change
     const handleLanguageChange = (index: number, language: string) => {
         setFiles(prev => prev.map((f, i) => {
             if (i === index) {
@@ -179,11 +170,10 @@ export default function ExercisePage() {
 
     return (
         <div className="h-[calc(100vh-3rem)] flex flex-col">
-            {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-ide-toolbar">
                 <div className="flex items-center gap-4">
                     <Link
-                        to={`/lessons/${exercise.lesson_id}`}
+                        to={`/lesson/${exercise.lesson_id}`}
                         className="text-muted-foreground hover:text-foreground"
                     >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -209,7 +199,6 @@ export default function ExercisePage() {
                         {isAuthLoading ? 'Logging out...' : 'Logout'}
                     </button>
 
-                    {/* History button */}
                     <button
                         onClick={() => setShowHistory(true)}
                         className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg"
@@ -258,9 +247,7 @@ export default function ExercisePage() {
                 </div>
             </div>
 
-            {/* Content */}
             <div className="flex-1 flex overflow-hidden">
-                {/* Left: Instructions */}
                 <div className="w-80 border-r border-border overflow-y-auto bg-card">
                     <div className="p-4">
                         <h2 className="font-semibold text-foreground mb-3">
@@ -275,7 +262,6 @@ export default function ExercisePage() {
                             <p className="text-sm text-muted-foreground">No description available.</p>
                         )}
 
-                        {/* Test cases info */}
                         {exercise.test_cases && exercise.test_cases.length > 0 && (
                             <div className="mt-6">
                                 <h3 className="font-semibold text-foreground mb-2">
@@ -303,10 +289,8 @@ export default function ExercisePage() {
                     </div>
                 </div>
 
-                {/* Right: Editor/Quiz/Output */}
                 <div className="flex-1 flex flex-col overflow-hidden">
                     {isQuiz ? (
-                        // Quiz Mode
                         <div className="flex-1 overflow-y-auto p-6 bg-ide-editor">
                             {exercise.quiz_questions_student && exercise.quiz_questions_student.length > 0 ? (
                                 <Quiz
@@ -319,7 +303,6 @@ export default function ExercisePage() {
                             )}
                         </div>
                     ) : (
-                        // Coding Mode
                         <>
                             {activeTab === 'code' ? (
                                 <div className="flex-1 overflow-hidden">
@@ -344,7 +327,6 @@ export default function ExercisePage() {
                                         waitingForInput={false}
                                         onClear={resetExecution}
                                         onInput={(input) => {
-                                            // Send input via Socket.IO
                                             sendInput(input);
                                         }}
                                         onCancel={cancelExecution}
@@ -356,7 +338,6 @@ export default function ExercisePage() {
                 </div>
             </div>
 
-            {/* Result Banner */}
             {submissionResult && (
                 <div
                     className={clsx(
@@ -405,7 +386,6 @@ export default function ExercisePage() {
                         </div>
                     </div>
 
-                    {/* Test Results Details */}
                     {submissionResult.test_results && (
                         <div className="mt-3 pt-3 border-t border-border/30 max-w-4xl mx-auto">
                             <h4 className="text-sm font-medium text-foreground mb-2">
@@ -445,7 +425,6 @@ export default function ExercisePage() {
                 </div>
             )}
 
-            {/* History Sidebar */}
             <HistorySidebar
                 isOpen={showHistory}
                 onClose={() => setShowHistory(false)}

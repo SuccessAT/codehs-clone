@@ -138,7 +138,7 @@ async def get_course(
     result = await db.execute(
         select(Course)
         .options(
-            selectinload(Course.modules).selectinload(CourseModule.lesson)
+            selectinload(Course.modules).selectinload(Module.lessons)
         )
         .where(Course.id == course_id, Course.owner_id == current_user.id)
     )
