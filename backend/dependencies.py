@@ -60,6 +60,11 @@ class RateLimiter:
         # Lock for thread-safe access
         self._lock = asyncio.Lock()
     
+    def _cleanup_old_requests(self, requests: list[float], window_seconds: int) -> list[float]:
+        """Remove timestamps older than the window."""
+        now = time.time()
+        return [t for t in requests if now - t < window_seconds]
+
     async def is_allowed(self, key: str) -> tuple[bool, Optional[str]]:
         """
         Check if request is allowed for the given key.

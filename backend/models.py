@@ -245,5 +245,5 @@ class CourseModule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    course: Mapped["Course"] = relationship("Course", back_populates="modules")
+    course: Mapped["Course"] = relationship("Course")
     lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="course_modules")

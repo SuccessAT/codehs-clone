@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 interface ExecutionMessage {
     type: string;
@@ -60,7 +60,10 @@ export function useExecution(exerciseId: number, language?: string) {
             wsRef.current.close();
         }
 
-        const wsUrl = `${API_BASE_URL.replace('http', 'ws')}/api/v1/ws/execute/${user.id}?token=${token}`;
+        const baseWsUrl = API_BASE_URL
+            ? API_BASE_URL.replace(/^http/, 'ws')
+            : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+        const wsUrl = `${baseWsUrl}/api/v1/ws/execute/${user.id}?token=${token}`;
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
