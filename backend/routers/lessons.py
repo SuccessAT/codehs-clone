@@ -384,7 +384,7 @@ async def create_lesson_in_module(
     if not course:
         raise HTTPException(status_code=404, detail="Module not found")
     
-    db_lesson = Lesson(**lesson.model_dump(), module_id=module_id)
+    db_lesson = Lesson(**lesson.model_dump(exclude={'module_id'}), module_id=module_id)
     db.add(db_lesson)
     await db.commit()
     await db.refresh(db_lesson)
