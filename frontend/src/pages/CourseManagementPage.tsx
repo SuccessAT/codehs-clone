@@ -3,6 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { coursesApi, modulesApi, lessonsApi } from '@/api';
 import type { Course, Module, Lesson, LessonType } from '@/types';
 import clsx from 'clsx';
+import MonacoEditor from '@monaco-editor/react';
+import RichTextEditor from '@/components/RichTextEditor';
+import VideoPreview from '@/components/VideoPreview';
 
 const LANGUAGES = ['python', 'javascript', 'typescript', 'java', 'cpp', 'c', 'html', 'css'];
 
@@ -391,13 +394,11 @@ export default function CourseManagementPage() {
                             {/* TEXT */}
                             {newLesson.lesson_type === 'text' && (
                                 <div>
-                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Content (Markdown supported)</label>
-                                    <textarea
-                                        className="input py-3 font-mono text-sm"
-                                        rows={10}
-                                        placeholder={'# Heading\n\nWrite your lesson content here.\n\n- Bullet point\n- Another point\n\n**Bold**, *italic*, `code`'}
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Content</label>
+                                    <RichTextEditor
                                         value={newLesson.content}
-                                        onChange={(e) => setNewLesson({ ...newLesson, content: e.target.value })}
+                                        onChange={(html) => setNewLesson({ ...newLesson, content: html })}
+                                        placeholder="Start writing your lesson content. Use the toolbar to format text, add headings, lists, code blocks, and more..."
                                     />
                                 </div>
                             )}
@@ -406,24 +407,18 @@ export default function CourseManagementPage() {
                             {newLesson.lesson_type === 'video' && (
                                 <>
                                     <div>
-                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Video URL</label>
-                                        <input
-                                            type="url"
-                                            className="input h-12"
-                                            placeholder="https://youtube.com/watch?v=... or direct .mp4 URL"
-                                            value={newLesson.video_url}
-                                            onChange={(e) => setNewLesson({ ...newLesson, video_url: e.target.value })}
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Video</label>
+                                        <VideoPreview
+                                            url={newLesson.video_url}
+                                            onChange={(url) => setNewLesson({ ...newLesson, video_url: url, media_url: url })}
                                         />
-                                        <p className="text-xs text-muted-foreground mt-1">Supports YouTube, Vimeo, or direct video URLs.</p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Transcript / Notes (optional)</label>
-                                        <textarea
-                                            className="input py-3 text-sm"
-                                            rows={5}
-                                            placeholder="Add a transcript or companion notes for this video..."
+                                        <RichTextEditor
                                             value={newLesson.content}
-                                            onChange={(e) => setNewLesson({ ...newLesson, content: e.target.value })}
+                                            onChange={(html) => setNewLesson({ ...newLesson, content: html })}
+                                            placeholder="Add a transcript or companion notes for this video..."
                                         />
                                     </div>
                                 </>
@@ -477,27 +472,32 @@ export default function CourseManagementPage() {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Instructions</label>
-                                        <textarea
-                                            className="input py-3 text-sm"
-                                            rows={5}
-                                            placeholder="Describe what students need to do in this coding exercise..."
+                                        <RichTextEditor
                                             value={newLesson.content}
-                                            onChange={(e) => setNewLesson({ ...newLesson, content: e.target.value })}
+                                            onChange={(html) => setNewLesson({ ...newLesson, content: html })}
+                                            placeholder="Describe what students need to do in this coding exercise..."
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Starter Code</label>
-                                        <textarea
-                                            className="input py-3 font-mono text-sm"
-                                            rows={8}
-                                            placeholder={newLesson.language === 'python'
-                                                ? '# Write your code here\n\ndef solution():\n    pass'
-                                                : newLesson.language === 'javascript'
-                                                    ? '// Write your code here\n\nfunction solution() {\n    \n}'
-                                                    : '// Starter code for students'}
-                                            value={newLesson.starter_code}
-                                            onChange={(e) => setNewLesson({ ...newLesson, starter_code: e.target.value })}
-                                        />
+                                        <div className="rounded-xl overflow-hidden border border-border" style={{ height: 300 }}>
+                                            <MonacoEditor
+                                                height="300px"
+                                                language={newLesson.language === 'cpp' || newLesson.language === 'c' ? 'cpp' : newLesson.language}
+                                                theme="vs-dark"
+                                                value={newLesson.starter_code}
+                                                onChange={(val) => setNewLesson({ ...newLesson, starter_code: val || '' })}
+                                                options={{
+                                                    minimap: { enabled: false },
+                                                    fontSize: 14,
+                                                    lineNumbers: 'on',
+                                                    scrollBeyondLastLine: false,
+                                                    automaticLayout: true,
+                                                    padding: { top: 12, bottom: 12 },
+                                                    tabSize: newLesson.language === 'python' ? 4 : 2,
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 </>
                             )}

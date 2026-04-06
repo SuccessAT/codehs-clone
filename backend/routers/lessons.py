@@ -149,6 +149,29 @@ async def get_course(
 
 
 @router.post(
+    "/courses/{course_id}/publish",
+    response_model=CourseResponse,
+    summary="Publish or unpublish a course",
+)
+async def publish_course(
+    course_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+) -> CourseResponse:
+    """Toggle the published state of a course (teachers only)."""
+    result = await db.execute(
+        select(Course).where(Course.id == course_id, Course.owner_id == current_user.id)
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    course.is_published = not course.is_published
+    await db.commit()
+    await db.refresh(course)
+    return course
+
+
+@router.post(
     "/courses/{course_id}/modules",
     response_model=CourseModuleResponse,
     status_code=status.HTTP_201_CREATED,

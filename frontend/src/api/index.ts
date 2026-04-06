@@ -53,6 +53,7 @@ export const coursesApi = {
             body: JSON.stringify(data)
         }),
     delete: (id: number) => fetchApi<void>(`/api/v1/courses/${id}`, { method: 'DELETE' }),
+    publish: (id: number) => fetchApi<Course>(`/api/v1/courses/${id}/publish`, { method: 'POST' }),
 };
 
 // Modules API - new endpoints for Module with multiple lessons
@@ -119,6 +120,11 @@ export const lessonsApi = {
         fetchApi<Lesson>(`/api/v1/modules/${moduleId}/lessons/`, {
             method: 'POST',
             body: JSON.stringify(data)
+        }),
+    update: (id: number, data: Record<string, unknown>) =>
+        fetchApi<Lesson>(`/api/v1/lessons/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
         }),
     delete: (id: number) => fetchApi<void>(`/api/v1/lessons/${id}`, { method: 'DELETE' }),
     updateOrder: (moduleId: number, lessonIds: number[]) =>
