@@ -11,7 +11,7 @@ import MultiFileCodeEditor from '@/components/MultiFileCodeEditor';
 interface NewLesson {
     title: string;
     description: string;
-    lesson_type: LessonType;
+    lesson_type: LessonType | '';
     content: string;
     media_url: string;
     video_url: string;
@@ -23,7 +23,7 @@ interface NewLesson {
 const defaultLesson: NewLesson = {
     title: '',
     description: '',
-    lesson_type: 'text',
+    lesson_type: '',
     content: '',
     media_url: '',
     video_url: '',
@@ -114,7 +114,7 @@ export default function CourseManagementPage() {
     };
 
     const handleSaveLesson = async () => {
-        if (!activeModuleId) return;
+        if (!activeModuleId || !newLesson.lesson_type) return;
 
         // Build payload — only include type-relevant fields
         const payload: any = {
@@ -329,16 +329,18 @@ export default function CourseManagementPage() {
 
             {/* ── Lesson Modal ──────────────────────────────────────────── */}
             {showLessonModal && (
-                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-                    <div className="card w-full max-w-2xl p-10 shadow-2xl my-8">
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 overflow-y-auto">
+                    <div className="card w-full max-w-2xl p-10 shadow-2xl mx-auto my-8">
                         <h2 className="text-2xl font-black mb-6 uppercase tracking-tight">
                             {editingLesson ? 'Edit Content' : 'Add Content Item'}
                         </h2>
 
                         <div className="space-y-6">
-                            {/* Content Type */}
+                            {/* ── Step 1: Content Type Picker ── */}
                             <div>
-                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Content Type</label>
+                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
+                                    {newLesson.lesson_type ? 'Content Type' : '① Choose a content type'}
+                                </label>
                                 <div className="grid grid-cols-5 gap-2">
                                     {([
                                         { type: 'text', icon: '📄', label: 'Text' },
@@ -351,20 +353,27 @@ export default function CourseManagementPage() {
                                             key={type}
                                             onClick={() => setNewLesson({ ...newLesson, lesson_type: type })}
                                             className={clsx(
-                                                'flex flex-col items-center gap-1 py-3 text-[10px] font-bold rounded-xl border uppercase transition-all',
+                                                'flex flex-col items-center gap-1.5 py-4 text-[10px] font-bold rounded-xl border uppercase transition-all',
                                                 newLesson.lesson_type === type
-                                                    ? 'bg-primary text-white border-primary'
-                                                    : 'bg-transparent border-border hover:border-primary/50'
+                                                    ? 'bg-primary text-white border-primary shadow-lg shadow-primary/20 scale-[1.03]'
+                                                    : 'bg-transparent border-border hover:border-primary/50 hover:bg-secondary/50'
                                             )}
                                         >
-                                            <span className="text-lg">{icon}</span>
+                                            <span className="text-xl">{icon}</span>
                                             {label}
                                         </button>
                                     ))}
                                 </div>
+                                {!newLesson.lesson_type && (
+                                    <p className="text-xs text-muted-foreground mt-3 text-center">
+                                        Select a type above to continue filling in the details
+                                    </p>
+                                )}
                             </div>
 
-                            {/* Title — always shown */}
+                            {/* ── Step 2: Title & Description (only after type chosen) ── */}
+                            {newLesson.lesson_type && (
+                                <>
                             <div>
                                 <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Title *</label>
                                 <input
@@ -373,10 +382,10 @@ export default function CourseManagementPage() {
                                     placeholder="Enter a title for this content"
                                     value={newLesson.title}
                                     onChange={(e) => setNewLesson({ ...newLesson, title: e.target.value })}
+                                    autoFocus
                                 />
                             </div>
 
-                            {/* Short Description — always shown */}
                             <div>
                                 <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Short Description</label>
                                 <input
@@ -387,6 +396,8 @@ export default function CourseManagementPage() {
                                     onChange={(e) => setNewLesson({ ...newLesson, description: e.target.value })}
                                 />
                             </div>
+                                </>
+                            )}
 
                             {/* ── Type-specific fields ── */}
 
@@ -494,17 +505,19 @@ export default function CourseManagementPage() {
                                 </div>
                             )}
 
-                            {/* Order */}
-                            <div>
-                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Position (order)</label>
-                                <input
-                                    type="number"
-                                    className="input h-12 w-32"
-                                    min={0}
-                                    value={newLesson.order}
-                                    onChange={(e) => setNewLesson({ ...newLesson, order: parseInt(e.target.value) || 0 })}
-                                />
-                            </div>
+                            {/* Order — only shown when a type is selected */}
+                            {newLesson.lesson_type && (
+                                <div>
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Position (order)</label>
+                                    <input
+                                        type="number"
+                                        className="input h-12 w-32"
+                                        min={0}
+                                        value={newLesson.order}
+                                        onChange={(e) => setNewLesson({ ...newLesson, order: parseInt(e.target.value) || 0 })}
+                                    />
+                                </div>
+                            )}
 
                             <div className="flex gap-4 pt-2">
                                 <button
@@ -513,7 +526,7 @@ export default function CourseManagementPage() {
                                 >CANCEL</button>
                                 <button
                                     onClick={handleSaveLesson}
-                                    disabled={!newLesson.title.trim()}
+                                    disabled={!newLesson.lesson_type || !newLesson.title.trim()}
                                     className="flex-1 btn-primary h-12 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {editingLesson ? 'SAVE CHANGES' : 'ADD CONTENT'}
