@@ -83,7 +83,12 @@ class LessonUpdate(BaseModel):
     """Schema for updating a lesson."""
     title: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
+    lesson_type: Optional[str] = Field(None, pattern="^(text|video|picture|codelab|assignment)$")
+    content: Optional[str] = None
+    media_url: Optional[str] = None
     video_url: Optional[str] = None
+    starter_code: Optional[str] = None
+    language: Optional[str] = None
     order: Optional[int] = None
 
 

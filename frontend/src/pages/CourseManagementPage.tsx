@@ -3,11 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { coursesApi, modulesApi, lessonsApi } from '@/api';
 import type { Course, Module, Lesson, LessonType } from '@/types';
 import clsx from 'clsx';
-import MonacoEditor from '@monaco-editor/react';
 import RichTextEditor from '@/components/RichTextEditor';
 import VideoPreview from '@/components/VideoPreview';
+import MultiFileCodeEditor from '@/components/MultiFileCodeEditor';
 
-const LANGUAGES = ['python', 'javascript', 'typescript', 'java', 'cpp', 'c', 'html', 'css'];
 
 interface NewLesson {
     title: string;
@@ -459,18 +458,6 @@ export default function CourseManagementPage() {
                             {newLesson.lesson_type === 'codelab' && (
                                 <>
                                     <div>
-                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Programming Language</label>
-                                        <select
-                                            className="input h-12"
-                                            value={newLesson.language}
-                                            onChange={(e) => setNewLesson({ ...newLesson, language: e.target.value })}
-                                        >
-                                            {LANGUAGES.map(lang => (
-                                                <option key={lang} value={lang}>{lang.charAt(0).toUpperCase() + lang.slice(1)}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
                                         <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Instructions</label>
                                         <RichTextEditor
                                             value={newLesson.content}
@@ -479,25 +466,16 @@ export default function CourseManagementPage() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Starter Code</label>
-                                        <div className="rounded-xl overflow-hidden border border-border" style={{ height: 300 }}>
-                                            <MonacoEditor
-                                                height="300px"
-                                                language={newLesson.language === 'cpp' || newLesson.language === 'c' ? 'cpp' : newLesson.language}
-                                                theme="vs-dark"
-                                                value={newLesson.starter_code}
-                                                onChange={(val) => setNewLesson({ ...newLesson, starter_code: val || '' })}
-                                                options={{
-                                                    minimap: { enabled: false },
-                                                    fontSize: 14,
-                                                    lineNumbers: 'on',
-                                                    scrollBeyondLastLine: false,
-                                                    automaticLayout: true,
-                                                    padding: { top: 12, bottom: 12 },
-                                                    tabSize: newLesson.language === 'python' ? 4 : 2,
-                                                }}
-                                            />
-                                        </div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">
+                                            Files &amp; Test Cases
+                                        </label>
+                                        <MultiFileCodeEditor
+                                            value={newLesson.starter_code}
+                                            primaryLanguage={newLesson.language || 'python'}
+                                            onChange={(serialized, lang) =>
+                                                setNewLesson({ ...newLesson, starter_code: serialized, language: lang })
+                                            }
+                                        />
                                     </div>
                                 </>
                             )}

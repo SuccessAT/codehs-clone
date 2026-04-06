@@ -45,11 +45,13 @@ export default function RichTextEditor({ value, onChange, placeholder }: Props) 
             StarterKit.configure({
                 heading: { levels: [1, 2, 3] },
                 codeBlock: { languageClassPrefix: 'language-' },
+                // Exclude extensions we add separately to avoid duplicate warnings
+                dropcursor: false,
             }),
             Underline,
             Highlight,
             TextAlign.configure({ types: ['heading', 'paragraph'] }),
-            Link.configure({ openOnClick: false }),
+            Link.configure({ openOnClick: false, autolink: true }),
             Placeholder.configure({ placeholder: placeholder || 'Start writing your content...' }),
         ],
         content: value,
