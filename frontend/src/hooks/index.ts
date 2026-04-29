@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { authApi, lessonsApi } from '@/api';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { authApi, lessonsApi, getTokenExpiry, refreshToken } from '@/api';
 import { useAuthStore } from '@/store';
 import type { QuizAnswer, Submission } from '@/types';
 
@@ -185,4 +185,66 @@ export function useAuth() {
     }, [setLogout]);
 
     return { isLoading, error, login, logout, register };
+}
+
+/** Call once in App to keep the token alive and handle rehydration. */
+export function useAuthInit() {
+    const token = useAuthStore((s) => s.token);
+    const hasHydrated = useAuthStore((s) => s._hasHydrated);
+    const logout = useAuthStore((s) => s.logout);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const scheduleRefresh = useCallback((tok: string) => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+
+        const exp = getTokenExpiry(tok);
+        if (!exp) return;
+
+        // Refresh 2 minutes before expiry, minimum 0
+        const msUntilRefresh = Math.max(0, (exp - 120) * 1000 - Date.now());
+        timerRef.current = setTimeout(async () => {
+            const newToken = await refreshToken();
+            if (!newToken) logout();
+            // On success, the store updates `token`, which re-triggers this effect
+        }, msUntilRefresh);
+    }, [logout]);
+
+    // Schedule proactive refresh whenever the token changes
+    useEffect(() => {
+        if (!hasHydrated || !token) return;
+
+        const exp = getTokenExpiry(token);
+        if (!exp) return;
+
+        if (exp * 1000 <= Date.now()) {
+            // Token already expired — try to refresh immediately
+            refreshToken().then((t) => { if (!t) logout(); });
+        } else {
+            scheduleRefresh(token);
+        }
+
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+    }, [token, hasHydrated, logout, scheduleRefresh]);
+
+    // When tab becomes visible again, re-check in case timer was throttled
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState !== 'visible') return;
+            const tok = useAuthStore.getState().token;
+            if (!tok) return;
+
+            const exp = getTokenExpiry(tok);
+            if (!exp) return;
+
+            if (exp * 1000 <= Date.now()) {
+                refreshToken().then((t) => { if (!t) useAuthStore.getState().logout(); });
+            } else {
+                scheduleRefresh(tok);
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [scheduleRefresh]);
 }

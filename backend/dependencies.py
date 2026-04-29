@@ -196,25 +196,36 @@ async def check_rate_limit(
 
 
 # ==================== Password Utilities ====================
+_ph = __import__("argon2").PasswordHasher()
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password."""
-    salt = hashed_password.split(':')[0] if ':' in hashed_password else ''
-    if salt:
-        stored_hash = hashed_password.split(':')[1] if ':' in hashed_password else hashed_password
+    # Argon2 hashes start with "$argon2"
+    if hashed_password.startswith("$argon2"):
+        try:
+            return _ph.verify(hashed_password, plain_password)
+        except __import__("argon2").exceptions.VerifyMismatchError:
+            return False
+    # Legacy PBKDF2 format: "salt:hash"
+    if ':' in hashed_password:
+        salt, stored_hash = hashed_password.split(':', 1)
         test_hash = hashlib.pbkdf2_hmac('sha256', plain_password.encode(), salt.encode(), 100000).hex()
         return test_hash == stored_hash
-    else:
-        # Legacy format
-        test_hash = hashlib.sha256(plain_password.encode()).hexdigest()
-        return test_hash == hashed_password
+    # Legacy plain SHA-256
+    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+
+
+def password_needs_rehash(hashed_password: str) -> bool:
+    """Check if a password hash should be upgraded to current Argon2 parameters."""
+    if not hashed_password.startswith("$argon2"):
+        return True
+    return _ph.check_needs_rehash(hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using PBKDF2."""
-    import secrets
-    salt = secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
-    return f"{salt}:{hashed}"
+    """Hash a password using Argon2."""
+    return _ph.hash(password)
 
 
 # ==================== JWT Utilities ====================
@@ -224,7 +235,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -239,6 +250,35 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except InvalidTokenError:
         return None
+
+
+def decode_token_allow_expired(token: str, grace_seconds: int = 604800) -> Optional[dict]:
+    """Decode a JWT token, accepting tokens expired within a grace window.
+
+    Args:
+        token: The JWT string.
+        grace_seconds: Maximum age past expiry to accept (default 7 days).
+
+    Returns:
+        The decoded payload, or None if the token is revoked, invalid,
+        or expired beyond the grace window.
+    """
+    if is_token_revoked(token):
+        return None
+    try:
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
+    except InvalidTokenError:
+        return None
+
+    exp = payload.get("exp")
+    if exp is None:
+        return None
+    if time.time() - exp > grace_seconds:
+        return None
+    return payload
 
 
 # ==================== Authentication Dependencies ====================

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { User, Lesson, UserProgress } from '@/types';
 
 // UI Store
@@ -29,17 +30,67 @@ interface AuthState {
     user: User | null;
     token: string | null;
     isAuthenticated: boolean;
+    _hasHydrated: boolean;
     login: (user: User, token: string) => void;
     logout: () => void;
+    setToken: (token: string) => void;
+    setHasHydrated: (v: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-    user: null,
-    token: null,
-    isAuthenticated: false,
-    login: (user, token) => set({ user, token, isAuthenticated: true }),
-    logout: () => set({ user: null, token: null, isAuthenticated: false }),
-}));
+export const useAuthStore = create<AuthState>()(
+    persist(
+        (set) => ({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            _hasHydrated: false,
+            login: (user, token) => {
+                localStorage.setItem('token', token);
+                set({ user, token, isAuthenticated: true });
+            },
+            logout: () => {
+                localStorage.removeItem('token');
+                set({ user: null, token: null, isAuthenticated: false });
+            },
+            setToken: (token) => {
+                localStorage.setItem('token', token);
+                set({ token, isAuthenticated: true });
+            },
+            setHasHydrated: (v) => set({ _hasHydrated: v }),
+        }),
+        {
+            name: 'auth-storage',
+            storage: createJSONStorage(() => localStorage),
+            partialize: (state) => ({ user: state.user, token: state.token }),
+            onRehydrateStorage: () => (hydratedState, error) => {
+                // Defer state updates to ensure `useAuthStore` is fully initialized
+                Promise.resolve().then(() => {
+                    if (error) {
+                        useAuthStore.setState({ _hasHydrated: true });
+                        return;
+                    }
+
+                    let token = hydratedState?.token;
+
+                    // Migrate: pick up token from the old localStorage key if the
+                    // persist store doesn't have one yet.
+                    if (!token) {
+                        const legacyToken = localStorage.getItem('token');
+                        if (legacyToken) {
+                            token = legacyToken;
+                            useAuthStore.setState({ token: legacyToken });
+                        }
+                    }
+
+                    useAuthStore.setState({
+                        isAuthenticated: !!(hydratedState?.user && token),
+                        _hasHydrated: true,
+                    });
+                });
+            },
+        },
+    ),
+);
 
 // Lesson Store
 interface LessonState {

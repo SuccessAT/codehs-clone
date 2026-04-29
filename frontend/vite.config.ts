@@ -18,10 +18,10 @@ export default defineConfig({
             '/api': {
                 target: 'http://localhost:8000',
                 changeOrigin: true,
-                ws: true,
             },
-            '/ws': {
-                target: 'http://localhost:8008',
+            // WebSocket upgrade for the backend execution endpoint
+            '/api/v1/ws': {
+                target: 'http://localhost:8000',
                 changeOrigin: true,
                 ws: true,
             },

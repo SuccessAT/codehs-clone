@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '@/store';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const E2B_SOCKET_URL = import.meta.env.VITE_E2B_SOCKET_URL || 'http://localhost:8008';
 
 // Marker to detect when execution is complete in the PTY terminal
 const EXEC_DONE_MARKER = '__E2B_EXEC_DONE__';
@@ -76,12 +77,10 @@ export function useExecution(exerciseId: number, language?: string) {
     const connectSocketIO = useCallback(() => {
         if (socketRef.current?.connected) return;
 
-        const socket = io({
-            path: '/ws/socket.io',
+        const socket = io(E2B_SOCKET_URL, {
+            path: '/socket.io',
             transports: ['websocket'],
-            reconnection: true,
-            reconnectionAttempts: 3,
-            reconnectionDelay: 2000,
+            reconnection: false,
             timeout: 10000,
         });
 
@@ -154,6 +153,7 @@ export function useExecution(exerciseId: number, language?: string) {
             setError(`Sandbox error: ${err}`);
             setSandboxReady(false);
             setUsingE2B(false);
+            socket.disconnect(); // Prevent reconnections that trigger multiple fallbacks
             // Fall back to WebSocket
             connectWebSocket();
         });
@@ -168,6 +168,7 @@ export function useExecution(exerciseId: number, language?: string) {
         socket.on('connect_error', (err: Error) => {
             console.warn('[e2b] connect_error:', err.message, '— falling back to local executor');
             setUsingE2B(false);
+            socket.disconnect(); // Prevent reconnections that trigger multiple fallbacks
             connectWebSocket();
         });
 
@@ -187,7 +188,10 @@ export function useExecution(exerciseId: number, language?: string) {
 
     const connectWebSocket = useCallback(() => {
         if (!token || !user) return;
-        if (wsRef.current?.readyState === WebSocket.OPEN) return;
+        if (
+            wsRef.current?.readyState === WebSocket.OPEN ||
+            wsRef.current?.readyState === WebSocket.CONNECTING
+        ) return;
 
         wsRef.current?.close();
 
@@ -257,6 +261,8 @@ export function useExecution(exerciseId: number, language?: string) {
 
     const disconnect = useCallback(() => {
         socketRef.current?.disconnect();
+        socketRef.current = null;
+        terminalIdRef.current = null;
         wsRef.current?.close();
         wsRef.current = null;
         setSandboxReady(false);
@@ -270,6 +276,19 @@ export function useExecution(exerciseId: number, language?: string) {
         setGradingResult(null);
         setIsExecuting(true);
         isExecutingRef.current = true;
+
+        // Lazily establish the Socket.IO connection on first run
+        if (!socketRef.current && !wsRef.current) {
+            connectSocketIO();
+            // Give Socket.IO a moment to connect and set up the terminal
+            await new Promise<void>((resolve) => {
+                const check = () => {
+                    if (terminalIdRef.current || wsRef.current?.readyState === WebSocket.OPEN) resolve();
+                    else setTimeout(check, 150);
+                };
+                setTimeout(check, 500);
+            });
+        }
 
         // ── e2b path ──────────────────────────────────────────────────────────
         if (usingE2B && socketRef.current?.connected && terminalIdRef.current) {
@@ -320,7 +339,7 @@ export function useExecution(exerciseId: number, language?: string) {
             code,
             language: lang,
         }));
-    }, [usingE2B, lang, exerciseId, connectWebSocket]);
+    }, [usingE2B, lang, exerciseId, connectSocketIO, connectWebSocket]);
 
     const cancelExecution = useCallback(() => {
         if (usingE2B && socketRef.current?.connected && terminalIdRef.current) {
@@ -356,14 +375,11 @@ export function useExecution(exerciseId: number, language?: string) {
         setWaitingForInput(false);
     }, []);
 
-    // Connect Socket.IO on mount
+    // Disconnect when exerciseId changes or component unmounts.
+    // Connections are re-established lazily when runCode is called.
     useEffect(() => {
-        connectSocketIO();
-        return () => {
-            disconnect();
-        };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        return () => { disconnect(); };
+    }, [exerciseId, disconnect]);
 
     return {
         stdout,

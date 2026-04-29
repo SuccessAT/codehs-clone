@@ -1,4 +1,5 @@
 import type { Lesson, LessonWithExercises, ExerciseDetail, Submission, QuizAnswer, Course, Module, LessonProgress, LessonType } from '@/types';
+import { useAuthStore } from '@/store';
 
 // Use relative path in development to leverage Vite proxy, or custom URL in production
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -10,11 +11,65 @@ class ApiError extends Error {
     }
 }
 
+// ─── JWT helpers ───────────────────────────────────────────────────────────────
+
+/** Decode the `exp` claim from a JWT without any library. */
+export function getTokenExpiry(token: string): number | null {
+    try {
+        const payload = token.split('.')[1];
+        const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+        return typeof decoded.exp === 'number' ? decoded.exp : null;
+    } catch {
+        return null;
+    }
+}
+
+// ─── Singleton token refresh ───────────────────────────────────────────────────
+
+let refreshPromise: Promise<string | null> | null = null;
+
+export async function refreshToken(): Promise<string | null> {
+    if (refreshPromise) return refreshPromise;
+
+    refreshPromise = (async () => {
+        const currentToken = useAuthStore.getState().token;
+        if (!currentToken) return null;
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${currentToken}` },
+            });
+            if (!res.ok) {
+                useAuthStore.getState().logout();
+                return null;
+            }
+            const { access_token } = await res.json();
+            // Keep legacy localStorage key in sync for the login hook's raw fetch calls
+            localStorage.setItem('token', access_token);
+            useAuthStore.getState().setToken(access_token);
+            return access_token as string;
+        } catch {
+            // Network error — don't log out, connection may recover
+            return null;
+        }
+    })();
+
+    try {
+        return await refreshPromise;
+    } finally {
+        refreshPromise = null;
+    }
+}
+
+// ─── fetchApi with 401 interceptor ─────────────────────────────────────────────
+
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const token = localStorage.getItem('token');
+    const token = useAuthStore.getState().token || localStorage.getItem('token');
+    const isFormData = options?.body instanceof FormData;
 
     const headers: HeadersInit = {
-        'Content-Type': 'application/json',
+        ...(!isFormData && { 'Content-Type': 'application/json' }),
         ...(token && { Authorization: `Bearer ${token}` }),
         ...options?.headers,
     };
@@ -23,6 +78,28 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
         ...options,
         headers,
     });
+
+    // On 401, attempt one transparent refresh + retry
+    if (response.status === 401) {
+        const newToken = await refreshToken();
+        if (newToken) {
+            const retryHeaders: HeadersInit = {
+                ...(!isFormData && { 'Content-Type': 'application/json' }),
+                Authorization: `Bearer ${newToken}`,
+                ...options?.headers,
+            };
+            const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+                ...options,
+                headers: retryHeaders,
+            });
+            if (retryResponse.ok) {
+                return retryResponse.json();
+            }
+            // Retry also failed — fall through to throw
+            const retryError = await retryResponse.json().catch(() => ({ detail: 'An error occurred' }));
+            throw new ApiError(retryResponse.status, retryError.detail || 'An error occurred');
+        }
+    }
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
@@ -33,24 +110,23 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 // Courses API
-// Courses API - public and private
 export const coursesApi = {
     // List all courses (teachers see all their courses)
-    list: () => fetchApi<Course[]>('/api/v1/courses/'),
-    
+    list: () => fetchApi<Course[]>('/api/v1/courses'),
+
     // List published courses (students see public courses)
     listPublic: () => fetchApi<Course[]>('/api/v1/courses/public/'),
-    
+
     // Get course by ID (teachers only - includes unpublished)
     get: (id: number) => fetchApi<Course>(`/api/v1/courses/${id}`),
-    
+
     // Get published course (students)
     getPublic: (id: number) => fetchApi<Course>(`/api/v1/courses/public/${id}`),
-    
-    create: (data: { title: string; description?: string }) => 
-        fetchApi<Course>('/api/v1/courses/', { 
-            method: 'POST', 
-            body: JSON.stringify(data) 
+
+    create: (data: { title: string; description?: string }) =>
+        fetchApi<Course>('/api/v1/courses', {
+            method: 'POST',
+            body: JSON.stringify(data)
         }),
     delete: (id: number) => fetchApi<void>(`/api/v1/courses/${id}`, { method: 'DELETE' }),
 };
@@ -134,9 +210,9 @@ export const lessonsApi = {
         total_points: number; 
         lessons: LessonProgress[]
     }>('/api/v1/users/me/progress'),
-    listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions/'),
+    listSubmissions: () => fetchApi<Submission[]>('/api/v1/submissions'),
     submitCode: (exerciseId: number, code: string) =>
-        fetchApi<Submission>('/api/v1/submissions/', {
+        fetchApi<Submission>('/api/v1/submissions', {
             method: 'POST',
             body: JSON.stringify({ exercise_id: exerciseId, code }),
         }),

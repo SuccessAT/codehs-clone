@@ -26,7 +26,9 @@ from dependencies import (
     get_current_active_user,
     get_password_hash,
     verify_password,
+    password_needs_rehash,
     create_access_token,
+    decode_token_allow_expired,
     check_rate_limit,
     rate_limiter,
     security,
@@ -130,7 +132,13 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
+    # Transparently upgrade legacy hashes to Argon2
+    if password_needs_rehash(user.hashed_password):
+        user.hashed_password = get_password_hash(form_data.password)
+        await db.commit()
+        logger.info(f"Rehashed password to Argon2 for user: {user.username}")
+
     # Check if user is active
     if not user.is_active:
         raise HTTPException(
@@ -169,18 +177,54 @@ async def get_current_user_info(
     "/refresh",
     response_model=Token,
     summary="Refresh access token",
-    description="Get a new access token using the current valid token.",
+    description="Get a new access token. Accepts tokens expired within 7 days.",
 )
 async def refresh_token(
-    current_user: User = Depends(get_current_active_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db),
 ) -> Token:
-    """Refresh access token."""
+    """Refresh access token, accepting recently-expired tokens."""
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No credentials provided",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    old_token = credentials.credentials
+    payload = decode_token_allow_expired(old_token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is invalid or expired beyond refresh window",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+
+    # Revoke the old token to prevent reuse
+    revoke_token(old_token)
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": current_user.id, "username": current_user.username, "role": current_user.role.value},
-        expires_delta=access_token_expires
+        data={"sub": user.id, "username": user.username, "role": user.role.value},
+        expires_delta=access_token_expires,
     )
-    
+
+    logger.info(f"Token refreshed for user: {user.username} (id={user.id})")
     return Token(access_token=access_token, token_type="bearer")
 
 
@@ -318,10 +362,13 @@ async def delete_user(
             detail="Cannot delete your own account"
         )
     
+    username = user.username
+    user_id = user.id
+    
     await db.delete(user)
     await db.commit()
     
-    logger.info(f"User deleted: {user.username} (id={user.id})")
+    logger.info(f"User deleted: {username} (id={user_id})")
     
     return Message(message="User deleted successfully")
 

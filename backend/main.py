@@ -76,16 +76,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup: Seed demo accounts
     await seed_demo_accounts()
 
-    # Startup: Initialize fallback executor (real e2b sandbox runs via Socket.IO server on port 8008)
-    logger.info("Initializing local fallback executor...")
-    try:
-        e2b_service = await init_e2b_service()
-        logger.info(f"Legacy e2b bridge connected: {e2b_service.is_connected}")
-    except E2BConnectionError:
-        logger.info("Legacy e2b bridge not available — using local executor fallback (expected).")
-    except Exception as e:
-        logger.info(f"Local fallback executor ready. (e2b bridge skipped: {e})")
-    
+    # Try E2B connection in the background so it never blocks request serving.
+    async def _try_e2b() -> None:
+        try:
+            e2b_service = await init_e2b_service()
+            logger.info(f"Legacy e2b bridge connected: {e2b_service.is_connected}")
+        except E2BConnectionError:
+            logger.info("Legacy e2b bridge not available — using local executor fallback (expected).")
+        except Exception as e:
+            logger.info(f"Local fallback executor ready. (e2b bridge skipped: {e})")
+
+    asyncio.create_task(_try_e2b())
+
     logger.info("Application startup complete")
     
     yield

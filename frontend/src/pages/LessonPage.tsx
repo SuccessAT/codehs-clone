@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { lessonsApi } from '@/api';
-import { useAuth } from '@/hooks';
+
 import type { LessonWithExercises, Submission } from '@/types';
 import clsx from 'clsx';
 
 export default function LessonPage() {
     const { lessonId } = useParams<{ lessonId: string }>();
     const navigate = useNavigate();
-    const { logout, isLoading: isAuthLoading } = useAuth();
+
     const [lesson, setLesson] = useState<LessonWithExercises | null>(null);
     const [submissions, setSubmissions] = useState<Map<number, Submission>>(new Map());
     const [isLoading, setIsLoading] = useState(true);
@@ -91,13 +91,6 @@ export default function LessonPage() {
                         </svg>
                         All Lessons
                     </Link>
-                    <button
-                        onClick={logout}
-                        disabled={isAuthLoading}
-                        className="px-3 py-1.5 rounded-lg font-medium text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isAuthLoading ? 'Logging out...' : 'Logout'}
-                    </button>
                 </div>
 
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">

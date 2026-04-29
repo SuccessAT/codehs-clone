@@ -384,7 +384,7 @@ async def create_lesson_in_module(
     if not course:
         raise HTTPException(status_code=404, detail="Module not found")
     
-    db_lesson = Lesson(**lesson.model_dump(), module_id=module_id)
+    db_lesson = Lesson(**lesson.model_dump(exclude={"module_id"}), module_id=module_id)
     db.add(db_lesson)
     await db.commit()
     await db.refresh(db_lesson)
@@ -535,10 +535,12 @@ async def delete_lesson(
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
     
+    lesson_title = lesson.title
+    
     await db.delete(lesson)
     await db.commit()
     
-    logger.info(f"Lesson deleted: {lesson.title} (id={lesson.id}) by user {current_user.id}")
+    logger.info(f"Lesson deleted: {lesson_title} (id={lesson_id}) by user {current_user.id}")
     
     return Message(message="Lesson deleted successfully")
 
@@ -685,10 +687,12 @@ async def delete_exercise(
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
     
+    exercise_title = exercise.title
+    
     await db.delete(exercise)
     await db.commit()
     
-    logger.info(f"Exercise deleted: {exercise.title} (id={exercise.id}) by user {current_user.id}")
+    logger.info(f"Exercise deleted: {exercise_title} (id={exercise_id}) by user {current_user.id}")
     
     return Message(message="Exercise deleted successfully")
 

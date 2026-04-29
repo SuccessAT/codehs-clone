@@ -6,7 +6,7 @@ import type { Course } from '@/types';
 
 export default function DashboardPage() {
     const { user } = useAuthStore();
-    const { darkMode, setDarkMode } = useUIStore();
+    const { darkMode } = useUIStore();
     const [courses, setCourses] = useState<Course[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -19,7 +19,9 @@ export default function DashboardPage() {
     const fetchCourses = async () => {
         setIsLoading(true);
         try {
-            const data = await coursesApi.list();
+            const data = user?.role === 'teacher'
+                ? await coursesApi.list()
+                : await coursesApi.listPublic();
             setCourses(data);
         } catch (err) {
             console.error('Failed to fetch courses', err);
@@ -61,12 +63,7 @@ export default function DashboardPage() {
                     </p>
                 </div>
                 <div className="flex gap-4">
-                    <button 
-                        onClick={() => setDarkMode(!darkMode)}
-                        className="p-3 rounded-xl bg-secondary hover:bg-secondary/80 transition-colors"
-                    >
-                        {darkMode ? '☀️' : '🌙'}
-                    </button>
+
                     {user?.role === 'teacher' && (
                         <button 
                             onClick={() => setShowCreateModal(true)}

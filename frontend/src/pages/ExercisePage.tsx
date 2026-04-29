@@ -22,7 +22,7 @@ export default function ExercisePage() {
     const [error, setError] = useState<string | null>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [runOutput, setRunOutput] = useState({ stdout: '', stderr: '' });
-    const { logout, isLoading: isAuthLoading } = useAuth();
+
 
     const { activeTab, setActiveTab } = useUIStore();
 
@@ -207,14 +207,6 @@ export default function ExercisePage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={logout}
-                        disabled={isAuthLoading}
-                        className="px-3 py-1.5 rounded-lg font-medium text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isAuthLoading ? 'Logging out...' : 'Logout'}
-                    </button>
-
                     {/* History button */}
                     <button
                         onClick={() => setShowHistory(true)}

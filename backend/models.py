@@ -114,8 +114,8 @@ class Exercise(Base):
     lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    exercise_type: Mapped[ExerciseType] = mapped_column(
-        Enum(ExerciseType), nullable=False, default=ExerciseType.CODING
+    exercise_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="coding"
     )
     starter_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     language: Mapped[str] = mapped_column(String(50), nullable=False, default="python")

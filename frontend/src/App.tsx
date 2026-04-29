@@ -7,12 +7,21 @@ import CourseManagementPage from './pages/CourseManagementPage'
 import StudentCourseView from './pages/StudentCourseView'
 import LessonPage from './pages/LessonPage'
 import ExercisePage from './pages/ExercisePage'
-import ThemeToggle from './components/ThemeToggle'
+import ProfileMenu from './components/ProfileMenu'
 import { useAuthStore, useUIStore } from './store'
+import { useAuthInit } from './hooks'
 
 const ProtectedRoute = ({ children, requireTeacher = false }: { children: React.ReactNode, requireTeacher?: boolean }) => {
-    const { isAuthenticated, user } = useAuthStore()
-    
+    const { isAuthenticated, user, _hasHydrated } = useAuthStore()
+
+    if (!_hasHydrated) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+        )
+    }
+
     if (!isAuthenticated) {
         return <Navigate to="/login" replace />
     }
@@ -26,6 +35,7 @@ const ProtectedRoute = ({ children, requireTeacher = false }: { children: React.
 
 function App() {
     const { darkMode } = useUIStore()
+    useAuthInit()
 
     useEffect(() => {
         if (darkMode) {
@@ -37,7 +47,7 @@ function App() {
 
     return (
         <>
-            <ThemeToggle />
+            <ProfileMenu />
             <BrowserRouter>
             <Routes>
                 {/* Public Routes */}

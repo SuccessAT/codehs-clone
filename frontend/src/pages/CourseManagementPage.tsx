@@ -22,7 +22,11 @@ export default function CourseManagementPage() {
         title: string;
         description: string;
         lesson_type: LessonType;
-    }>({ title: '', description: '', lesson_type: 'text' });
+        content?: string;
+        media_url?: string;
+        starter_code?: string;
+        language?: string;
+    }>({ title: '', description: '', lesson_type: 'text', content: '', media_url: '', starter_code: '', language: 'python' });
 
     useEffect(() => {
         if (courseId) {
@@ -79,7 +83,7 @@ export default function CourseManagementPage() {
         try {
             await modulesApi.createLesson(activeModuleId, newLesson);
             setShowLessonModal(false);
-            setNewLesson({ title: '', description: '', lesson_type: 'text' });
+            setNewLesson({ title: '', description: '', lesson_type: 'text', content: '', media_url: '', starter_code: '', language: 'python' });
             fetchCourseData();
         } catch (err) {
             console.error('Failed to create lesson:', err);
@@ -244,9 +248,70 @@ export default function CourseManagementPage() {
                                 <input type="text" className="input h-12" value={newLesson.title} onChange={(e) => setNewLesson({...newLesson, title: e.target.value})} />
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Short Description</label>
-                                <input type="text" className="input h-12" value={newLesson.description} onChange={(e) => setNewLesson({...newLesson, description: e.target.value})} />
+                                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Short Description / Instructions</label>
+                                <input type="text" className="input h-12" value={newLesson.description} onChange={(e) => setNewLesson({...newLesson, description: e.target.value})} placeholder="Brief instructions or overview" />
                             </div>
+
+                            {/* Dynamic Fields based on Lesson Type */}
+                            {(newLesson.lesson_type === 'text' || newLesson.lesson_type === 'assignment') && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                                    <div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">
+                                            {newLesson.lesson_type === 'text' ? 'Reading Content' : 'Assignment Prompt'} (Markdown Supported)
+                                        </label>
+                                        <textarea 
+                                            className="input h-48 py-3 font-mono text-sm" 
+                                            value={newLesson.content || ''} 
+                                            onChange={(e) => setNewLesson({...newLesson, content: e.target.value})} 
+                                            placeholder={`# Heading\nWrite your ${newLesson.lesson_type === 'text' ? 'rich text reading content' : 'assignment instructions'} here...`}
+                                        />
+                                    </div>
+                                    <div className="p-4 bg-secondary/50 rounded-lg border border-border">
+                                        <p className="text-sm font-bold mb-1">Interactive Exercises</p>
+                                        <p className="text-xs text-muted-foreground">You can attach coding exercises or quizzes to this lesson after saving it.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(newLesson.lesson_type === 'video' || newLesson.lesson_type === 'picture') && (
+                                <div className="animate-in fade-in slide-in-from-bottom-2">
+                                    <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Media URL</label>
+                                    <input 
+                                        type="url" 
+                                        className="input h-12" 
+                                        value={newLesson.media_url || ''} 
+                                        onChange={(e) => setNewLesson({...newLesson, media_url: e.target.value})} 
+                                        placeholder={newLesson.lesson_type === 'video' ? "https://youtube.com/..." : "https://example.com/image.png"} 
+                                    />
+                                </div>
+                            )}
+
+                            {newLesson.lesson_type === 'codelab' && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                                    <div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Programming Language</label>
+                                        <select 
+                                            className="input h-12" 
+                                            value={newLesson.language || 'python'} 
+                                            onChange={(e) => setNewLesson({...newLesson, language: e.target.value})}
+                                        >
+                                            <option value="python">Python</option>
+                                            <option value="javascript">JavaScript</option>
+                                            <option value="java">Java</option>
+                                            <option value="cpp">C++</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Starter Code</label>
+                                        <textarea 
+                                            className="input h-48 py-3 font-mono text-sm" 
+                                            value={newLesson.starter_code || ''} 
+                                            onChange={(e) => setNewLesson({...newLesson, starter_code: e.target.value})} 
+                                            placeholder="def main():\n    # Your code here\n    pass"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex gap-4">
                                 <button onClick={() => setShowLessonModal(false)} className="flex-1 h-12 rounded-xl border font-bold">CANCEL</button>
                                 <button onClick={handleAddLesson} className="flex-1 btn-primary h-12 font-bold">ADD</button>
